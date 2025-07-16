@@ -61,7 +61,7 @@
 #define SETTINGS_WIDTH 80
 
 #ifndef MAIN_ROW_COUNT
-#define MAIN_ROW_COUNT 6 // FIXED_HEIGHT / (PILL_SIZE * FIXED_SCALE) - 2 (floor and subtract 1 if not an integer)
+#define MAIN_ROW_COUNT 5 // FIXED_HEIGHT / (PILL_SIZE * FIXED_SCALE) - 2 (floor and subtract 1 if not an integer)
 #endif
 
 #ifndef QUICK_SWITCHER_COUNT
