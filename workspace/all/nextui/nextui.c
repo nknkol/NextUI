@@ -2980,7 +2980,13 @@ int main (int argc, char *argv[]) {
 
 					int text_width = GFX_getTextWidth(font.large, entry_text, cached_display_name, available_width, SCALE1(BUTTON_PADDING * 2));
 					int max_width = MIN(available_width, text_width);
-					int list_oy = SCALE1(PADDING + PILL_SIZE + BUTTON_MARGIN);
+					
+					// --- 关键修改点 ---
+					int safe_area_top = SCALE1(PADDING + PILL_SIZE);
+					int safe_area_bottom = screen->h - SCALE1(PADDING + PILL_SIZE);
+					int available_height = safe_area_bottom - safe_area_top;
+					int list_block_height = MAIN_ROW_COUNT * SCALE1(PILL_SIZE);
+					int list_oy = safe_area_top + ((available_height - list_block_height) / 2);
 
 					GFX_clearLayers(LAYER_SCROLLTEXT);
 					GFX_scrollTextTexture(

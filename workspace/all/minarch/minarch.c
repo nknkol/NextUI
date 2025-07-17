@@ -6510,10 +6510,16 @@ static void Menu_loop(void) {
 			GFX_blitButtonGroup((char*[]){ "B","BACK", "A","OKAY", NULL }, 1, screen, 1);
 			
 			// list
-			oy = (((DEVICE_HEIGHT / FIXED_SCALE) - PADDING * 2) - (MENU_ITEM_COUNT * PILL_SIZE)) / 2;
+			int top_bar_h = SCALE1(PADDING + PILL_SIZE);
+			int bottom_bar_h = SCALE1(PADDING + PILL_SIZE);
+			int available_h = screen->h - top_bar_h - bottom_bar_h;
+			int list_h = MENU_ITEM_COUNT * SCALE1(PILL_SIZE);
+			oy = top_bar_h + (available_h - list_h) / 2;
+
 			for (int i=0; i<MENU_ITEM_COUNT; i++) {
 				char* item = menu.items[i];
 				SDL_Color text_color = COLOR_WHITE;
+				int item_y = oy + (i * SCALE1(PILL_SIZE));
 				
 				if (i==selected) {
 					text_color = uintToColour(THEME_COLOR5_255);
@@ -6522,14 +6528,14 @@ static void Menu_loop(void) {
 					if (menu.total_discs>1 && i==ITEM_CONT) {				
 						GFX_blitPillDark(ASSET_WHITE_PILL, screen, &(SDL_Rect){
 							SCALE1(PADDING),
-							SCALE1(oy + PADDING),
+							item_y,
 							screen->w - SCALE1(PADDING * 2),
 							SCALE1(PILL_SIZE)
 						});
 						text = TTF_RenderUTF8_Blended(font.large, disc_name, text_color);
 						SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){
 							screen->w - SCALE1(PADDING + BUTTON_PADDING) - text->w,
-							SCALE1(oy + PADDING + 4)
+							item_y + SCALE1(4)
 						});
 						SDL_FreeSurface(text);
 					}
@@ -6540,7 +6546,7 @@ static void Menu_loop(void) {
 					// pill
 					GFX_blitPillDark(ASSET_WHITE_PILL, screen, &(SDL_Rect){
 						SCALE1(PADDING),
-						SCALE1(oy + PADDING + (i * PILL_SIZE)),
+						item_y,
 						ow,
 						SCALE1(PILL_SIZE)
 					});
@@ -6551,7 +6557,7 @@ static void Menu_loop(void) {
 				text = TTF_RenderUTF8_Blended(font.large, item, text_color);
 				SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){
 					SCALE1(PADDING + BUTTON_PADDING),
-					SCALE1(oy + PADDING + (i * PILL_SIZE) + 4)
+					item_y + SCALE1(4)
 				});
 				SDL_FreeSurface(text);
 			}

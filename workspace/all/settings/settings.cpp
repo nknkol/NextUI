@@ -111,9 +111,7 @@ int main(int argc, char *argv[])
         std::vector<std::any> tz_values;
         std::vector<std::string> tz_labels;
         for (int i = 0; i < tz_count; ++i) {
-            //LOG_info("Timezone: %s\n", timezones[i]);
             tz_values.push_back(std::string(timezones[i]));
-            // Todo: beautify, remove underscores and so on
             tz_labels.push_back(std::string(timezones[i]));
         }
 
@@ -146,10 +144,6 @@ int main(int argc, char *argv[])
                 []() -> std::any { return CFG_getColor(5); }, 
                 [](const std::any &value) { CFG_setColor(5, std::any_cast<uint32_t>(value)); },
                 []() { CFG_setColor(5, CFG_DEFAULT_COLOR5);}},
-                //new MenuItem{ListItemType::Color, "Background color", "Main UI background color", colors, color_strings, 
-                //[]() -> std::any { return CFG_getColor(7); }, 
-                //[](const std::any &value) { CFG_setColor(7, std::any_cast<uint32_t>(value)); },
-                //[]() { CFG_setColor(7, CFG_DEFAULT_COLOR7);}},
                 new MenuItem{ListItemType::Generic, "Show battery percentage", "Show battery level as percent in the status pill", {false, true}, on_off, 
                 []() -> std::any { return CFG_getShowBatteryPercent(); },
                 [](const std::any &value) { CFG_setShowBatteryPercent(std::any_cast<bool>(value)); },
@@ -189,13 +183,6 @@ int main(int argc, char *argv[])
                 []() -> std::any{ return CFG_getShowQuickswitcherUI(); },
                 [](const std::any &value){ CFG_setShowQuickswitcherUI(std::any_cast<bool>(value)); },
                 []() { CFG_setShowQuickswitcherUI(CFG_DEFAULT_SHOWQUICKWITCHERUI);}},
-                // not needed anymore
-                // new MenuItem{ListItemType::Generic, "Game switcher scaling", "The scaling algorithm used to display the savegame image.", scaling, scaling_strings, []() -> std::any
-                // { return CFG_getGameSwitcherScaling(); },
-                // [](const std::any &value)
-                // { CFG_setGameSwitcherScaling(std::any_cast<int>(value)); },
-                // []() { CFG_setGameSwitcherScaling(CFG_DEFAULT_GAMESWITCHERSCALING);}},
-
                 new MenuItem{ListItemType::Button, "Reset to defaults", "Resets all options in this menu to their default values.", ResetCurrentMenu},
         });
 
@@ -221,7 +208,6 @@ int main(int argc, char *argv[])
             { return GetExposure(); }, [](const std::any &value)
             { SetExposure(std::any_cast<int>(value)); },
             []() { SetExposure(SETTINGS_DEFAULT_EXPOSURE);}},
-
             new MenuItem{ListItemType::Button, "Reset to defaults", "Resets all options in this menu to their default values.", ResetCurrentMenu},
         });
 
@@ -264,11 +250,11 @@ int main(int argc, char *argv[])
             new MenuItem{ListItemType::Generic, "Set time and date automatically", "Automatically adjust system time\nwith NTP (requires internet access)", {false, true}, on_off, []() -> std::any
             { return TIME_getNetworkTimeSync(); }, [](const std::any &value)
             { TIME_setNetworkTimeSync(std::any_cast<bool>(value)); },
-            []() { TIME_setNetworkTimeSync(false);}}, // default from stock
+            []() { TIME_setNetworkTimeSync(false);}},
             new MenuItem{ListItemType::Generic, "Time zone", "Your time zone", tz_values, tz_labels, []() -> std::any
             { return std::string(TIME_getCurrentTimezone()); }, [](const std::any &value)
             { TIME_setCurrentTimezone(std::any_cast<std::string>(value).c_str()); },
-            []() { TIME_setCurrentTimezone("Asia/Shanghai");}}, // default from Stock
+            []() { TIME_setCurrentTimezone("Asia/Shanghai");}},
             new MenuItem{ListItemType::Generic, "Save format", "The save format to use.\nMinUI: Game.gba.sav, Retroarch: Game.srm, Generic: Game.sav", 
             {(int)SAVE_FORMAT_SAV, (int)SAVE_FORMAT_SRM, (int)SAVE_FORMAT_SRM_UNCOMPRESSED, (int)SAVE_FORMAT_GEN}, 
             {"MinUI (default)", "Retroarch (compressed)", "Retroarch (uncompressed)", "Generic"}, []() -> std::any
@@ -281,7 +267,6 @@ int main(int argc, char *argv[])
             { return CFG_getStateFormat(); }, [](const std::any &value)
             { CFG_setStateFormat(std::any_cast<int>(value)); },
             []() { CFG_setStateFormat(CFG_DEFAULT_STATEFORMAT);}},
-
             new MenuItem{ListItemType::Button, "Reset to defaults", "Resets all options in this menu to their default values.", ResetCurrentMenu},
         });
 
@@ -384,7 +369,6 @@ int main(int argc, char *argv[])
 
         auto muteMenu = new MenuList(MenuItemType::Fixed, "FN Switch", muteItems);
 
-        // TODO: check WIFI_supported(), hide menu otherwise
         auto networkMenu = new Wifi::Menu(appQuit);
 
         auto aboutMenu = new MenuList(MenuItemType::Fixed, "About",
@@ -408,24 +392,19 @@ int main(int argc, char *argv[])
             },
         });
 
-        ctx.menu = new MenuList(MenuItemType::List, "Main",
+        ctx.menu = new MenuList(MenuItemType::Main, "Settings",
         {
-            new MenuItem{ListItemType::Generic, "Appearance", "UI customization", {}, {}, nullptr, nullptr, DeferToSubmenu, appearanceMenu},
-            new MenuItem{ListItemType::Generic, "Display", "", {}, {}, nullptr, nullptr, DeferToSubmenu, displayMenu},
-            new MenuItem{ListItemType::Generic, "System", "", {}, {}, nullptr, nullptr, DeferToSubmenu, systemMenu},
-            new MenuItem{ListItemType::Generic, "FN switch", "FN switch settings", {}, {}, nullptr, nullptr, DeferToSubmenu, muteMenu},
-            new MenuItem{ListItemType::Generic, "Network", "", {}, {}, nullptr, nullptr, DeferToSubmenu, networkMenu},
-            new MenuItem{ListItemType::Generic, "About", "", {}, {}, nullptr, nullptr, DeferToSubmenu, aboutMenu},
+            new MenuItem{ListItemType::Generic, "Appearance", "UI customization", {}, {}, nullptr, nullptr, nullptr, DeferToSubmenu, appearanceMenu},
+            new MenuItem{ListItemType::Generic, "Display", "", {}, {}, nullptr, nullptr, nullptr, DeferToSubmenu, displayMenu},
+            new MenuItem{ListItemType::Generic, "System", "", {}, {}, nullptr, nullptr, nullptr, DeferToSubmenu, systemMenu},
+            new MenuItem{ListItemType::Generic, "FN switch", "FN switch settings", {}, {}, nullptr, nullptr, nullptr, DeferToSubmenu, muteMenu},
+            new MenuItem{ListItemType::Generic, "Network", "", {}, {}, nullptr, nullptr, nullptr, DeferToSubmenu, networkMenu},
+            new MenuItem{ListItemType::Generic, "About", "", {}, {}, nullptr, nullptr, nullptr, DeferToSubmenu, aboutMenu},
         });
 
-        //ctx.menu = new KeyboardPrompt("test", [](MenuItem &itm) -> InputReactionHint
-        //                              {   
-        //    LOG_info("Keyboard text: %s\n", itm.getName().c_str());
-        //    return NoOp; });
-
-        const bool showTitle = false;
+        const bool showTitle = true;
         const bool showIndicator = true;
-        const bool showHints = false;
+        const bool showHints = true;
 
         SDL_Surface* bgbmp = IMG_Load(SDCARD_PATH "/bg.png");
         SDL_Surface* convertedbg = SDL_ConvertSurfaceFormat(bgbmp, SDL_PIXELFORMAT_RGB565, 0);
@@ -436,15 +415,11 @@ int main(int argc, char *argv[])
             bgbmp = scaled;
         }
 
-        // main content (list)
-        // PADDING all around
         SDL_Rect listRect = {SCALE1(PADDING), SCALE1(PADDING), ctx.screen->w - SCALE1(PADDING * 2), ctx.screen->h - SCALE1(PADDING * 2)};
-        // PILL_SIZE above (if showing title)
         if (showTitle || showIndicator)
             listRect = dy(listRect, SCALE1(PILL_SIZE));
-        // BUTTON_SIZE below (if showing hints)
         if (showHints)
-            listRect.h -= SCALE1(BUTTON_SIZE);
+            listRect.h -= SCALE1(PILL_SIZE);
         ctx.menu->performLayout(listRect);
 
         while (!appQuit)
@@ -471,49 +446,44 @@ int main(int argc, char *argv[])
 
                 int ow = 0;
 
-                // indicator area top right
                 if (showIndicator)
                 {
                     ow = GFX_blitHardwareGroup(ctx.screen, ctx.show_setting);
                 }
                 int max_width = ctx.screen->w - SCALE1(PADDING * 2) - ow;
 
-                // title pill
                 if (showTitle)
                 {
                     char display_name[256];
-                    int text_width = GFX_truncateText(font.large, "Some title", display_name, max_width, SCALE1(BUTTON_PADDING * 2));
+                    int text_width = GFX_truncateText(font.large, "Settings", display_name, max_width, SCALE1(BUTTON_PADDING * 2));
                     max_width = MIN(max_width, text_width);
 
                     SDL_Surface *text;
-                    text = TTF_RenderUTF8_Blended(font.large, display_name, COLOR_WHITE);
+                    text = TTF_RenderUTF8_Blended(font.large, display_name, uintToColour(THEME_COLOR6_255));
                     SDL_Rect target = {SCALE1(PADDING), SCALE1(PADDING), max_width, SCALE1(PILL_SIZE)};
                     GFX_blitPillLight(ASSET_WHITE_PILL, ctx.screen, &target);
                     SDL_BlitSurfaceCPP(text, {0, 0, max_width - SCALE1(BUTTON_PADDING * 2), text->h}, ctx.screen, {SCALE1(PADDING + BUTTON_PADDING), SCALE1(PADDING + 4)});
                     SDL_FreeSurface(text);
                 }
 
-                // bottom area, button hints
                 if (showHints)
                 {
-                    if (ctx.show_setting && !GetHDMI())
+                    if (ctx.show_setting && !GetHDMI()) {
                         GFX_blitHardwareHints(ctx.screen, ctx.show_setting);
+                    }
                     else
                     {
-                        char *hints[] = {(char *)("MENU"), (char *)("SLEEP"), NULL};
-                        GFX_blitButtonGroup(hints, 0, ctx.screen, 0);
+                        char* left_hints[] = {(char*)(BTN_SLEEP==BTN_POWER?"POWER":"MENU"), (char*)"SLEEP", NULL};
+                        GFX_blitButtonGroup(left_hints, 0, ctx.screen, 0);
                     }
-                    char *hints[] = {(char *)("B"), (char *)("BACK"), (char *)("A"), (char *)("OKAY"), NULL};
-                    GFX_blitButtonGroup(hints, 1, ctx.screen, 1);
+                    char *right_hints[] = {(char *)("B"), (char *)("BACK"), (char *)("A"), (char *)("OKAY"), NULL};
+                    GFX_blitButtonGroup(right_hints, 1, ctx.screen, 1);
                 }
 
                 ctx.menu->draw(ctx.screen, listRect);
 
-                // present
                 GFX_flip(ctx.screen);
                 ctx.dirty = false;
-
-                // hdmimon();
             }
         }
 
