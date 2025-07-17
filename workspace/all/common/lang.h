@@ -1,6 +1,11 @@
 #ifndef LANG_H
 #define LANG_H
 
+// 使用 __cplusplus 宏来判断是否被C++编译器处理
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
  * @brief 初始化语言模块。
  *
@@ -25,5 +30,10 @@ const char* Lang_GetString(const char* key);
  * @brief Lang_GetString 的便捷宏，使代码更简洁。
  */
 #define L(key) Lang_GetString(key)
+
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // LANG_H

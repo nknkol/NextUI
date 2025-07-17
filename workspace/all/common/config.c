@@ -1,6 +1,7 @@
 #include "config.h"
 #include "defines.h"
 #include "utils.h"
+#include "lang.h" // 新增头文件引用
 
 NextUISettings settings = {0};
 
@@ -59,7 +60,12 @@ void CFG_defaults(NextUISettings *cfg)
 
         .wifi = CFG_DEFAULT_WIFI,
         .wifiDiagnostics = CFG_DEFAULT_WIFI_DIAG,
-};
+    };
+    
+    // 新增：设置默认语言
+    strncpy(defaults.language, CFG_DEFAULT_LANGUAGE, sizeof(defaults.language) -1);
+    defaults.language[sizeof(defaults.language) -1] = '\0';
+
 
     *cfg = defaults;
 }
@@ -233,9 +239,18 @@ void CFG_init(FontLoad_callback_t cb, ColorSet_callback_t ccb)
                 CFG_setWifiDiagnostics(temp_value);
                 continue;
             }
+            // 新增：读取语言设置
+            char temp_lang[8];
+            if (sscanf(line, "language=%7s", temp_lang) == 1) {
+                strncpy(settings.language, temp_lang, sizeof(settings.language) - 1);
+                settings.language[sizeof(settings.language) - 1] = '\0';
+                continue;
+            }
         }
         fclose(file);
     }
+    // 新增：在加载配置后初始化语言模块
+    Lang_Init(settings.language);
 
     // load gfx related stuff until we drop the indirection
     CFG_setColor(1, CFG_getColor(1));
@@ -249,7 +264,20 @@ void CFG_init(FontLoad_callback_t cb, ColorSet_callback_t ccb)
     if (!fontLoaded)
         CFG_setFontId(CFG_getFontId());
 }
+// 新增函数
+const char* CFG_getLanguage(void) {
+    return settings.language;
+}
 
+// 新增函数
+void CFG_setLanguage(const char* lang) {
+    if (lang && strlen(lang) < sizeof(settings.language)) {
+        strncpy(settings.language, lang, sizeof(settings.language));
+        settings.language[sizeof(settings.language)-1] = '\0';
+        // 立即应用语言更改
+        Lang_Init(settings.language);
+    }
+}
 int CFG_getFontId(void)
 {
     return settings.font;
@@ -716,7 +744,7 @@ void CFG_sync(void)
     fprintf(file, "defaultView=%i\n", settings.defaultView);
     fprintf(file, "quickSwitcherUi=%i\n", settings.showQuickSwitcherUi);
     fprintf(file, "wifiDiagnostics=%i\n", settings.wifiDiagnostics);
-
+    fprintf(file, "language=%s\n", settings.language);
     fclose(file);
 }
 

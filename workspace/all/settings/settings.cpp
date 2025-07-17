@@ -114,6 +114,9 @@ int main(int argc, char *argv[])
             tz_values.push_back(std::string(timezones[i]));
             tz_labels.push_back(std::string(timezones[i]));
         }
+        // 新增：为语言选项定义标签和值
+        const std::vector<std::string> lang_labels = {"English", "中文"};
+        const std::vector<std::any> lang_values = {std::string("en"), std::string("zh")};
 
         auto appearanceMenu = new MenuList(MenuItemType::Fixed, "Appearance",
             {   // 在 Font 的 MenuItem 中，将 {0, 1} 修改为 {0, 1, 2}
@@ -248,6 +251,11 @@ int main(int argc, char *argv[])
             [](const std::any &value)
             { CFG_setShowClock(std::any_cast<bool>(value)); },
             []() { CFG_setShowClock(CFG_DEFAULT_SHOWCLOCK);}},
+            // 新增：语言选项菜单项
+            new MenuItem{ListItemType::Generic, "Language", "The user interface language.", lang_values, lang_labels,
+                []() -> std::any { return std::string(CFG_getLanguage()); },
+                [](const std::any &value) { CFG_setLanguage(std::any_cast<std::string>(value).c_str()); },
+                []() { CFG_setLanguage(CFG_DEFAULT_LANGUAGE); }},
             new MenuItem{ListItemType::Generic, "Set time and date automatically", "Automatically adjust system time\nwith NTP (requires internet access)", {false, true}, on_off, []() -> std::any
             { return TIME_getNetworkTimeSync(); }, [](const std::any &value)
             { TIME_setNetworkTimeSync(std::any_cast<bool>(value)); },

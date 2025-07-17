@@ -2111,7 +2111,6 @@ int main (int argc, char *argv[]) {
 	// start my threaded image loader :D
 	initImageLoaderPool();
 	Menu_init();
-	Lang_Init("zh");
 	int qm_row = 0;
 	int qm_col = 0;
 	int qm_slot = 0;

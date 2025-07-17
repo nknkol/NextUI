@@ -94,7 +94,8 @@ typedef struct
 	// Network
 	bool wifi;
 	bool wifiDiagnostics;
-
+	// ADDED: Language setting
+	char language[8];
 } NextUISettings;
 
 #define CFG_DEFAULT_FONT_ID 1  // Next
@@ -126,7 +127,8 @@ typedef struct
 #define CFG_DEFAULT_VIEW SCREEN_GAMELIST
 #define CFG_DEFAULT_SHOWQUICKWITCHERUI true
 #define CFG_DEFAULT_WIFI_DIAG false
-
+// ADDED: Default language
+#define CFG_DEFAULT_LANGUAGE "en"
 void CFG_init(FontLoad_callback_t fontCallback, ColorSet_callback_t ccb);
 void CFG_print(void);
 void CFG_get(const char *key, char * value);
@@ -210,6 +212,13 @@ void CFG_setShowQuickswitcherUI(bool on);
 // WiFi diagnostic logging on/off
 bool CFG_getWifiDiagnostics(void);
 void CFG_setWifiDiagnostics(bool on);
+
+void CFG_sync(void);
+void CFG_quit(void);
+
+// ADDED: Function prototypes for language setting
+const char* CFG_getLanguage(void);
+void CFG_setLanguage(const char* lang);
 
 void CFG_sync(void);
 void CFG_quit(void);
