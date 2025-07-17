@@ -257,12 +257,16 @@ int CFG_getFontId(void)
 
 void CFG_setFontId(int id)
 {
+    // 将 clamp 的上限从 2 改为 3 (或更高，取决于你未来可能添加的字体数量)
+    // 或者直接改为你的新字体最大ID，这里是 2。
     settings.font = clamp(id, 0, 2);
 
     char *fontPath;
     if (settings.font == 1)
         fontPath = RES_PATH "/font1.ttf";
-    else
+    else if (settings.font == 2) // 添加这个 else if 分支
+        fontPath = RES_PATH "/font3.ttf";
+    else // 原来的 font2.ttf 逻辑变为 else
         fontPath = RES_PATH "/font2.ttf";
 
     if(settings.onFontChange)

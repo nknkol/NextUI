@@ -15,7 +15,7 @@
 #include <pthread.h>
 #include <assert.h>
 #include <limits.h>
-
+#include "lang.h"
 ///////////////////////////////////////
 
 typedef struct Array {
@@ -2111,6 +2111,7 @@ int main (int argc, char *argv[]) {
 	// start my threaded image loader :D
 	initImageLoaderPool();
 	Menu_init();
+	Lang_Init("zh");
 	int qm_row = 0;
 	int qm_col = 0;
 	int qm_slot = 0;
@@ -2479,7 +2480,7 @@ int main (int argc, char *argv[]) {
 			if (currentScreen == SCREEN_GAMELIST) {
 				int title_max_width = screen->w - SCALE1(PADDING * 2) - ow;
 				char display_name_title[256];
-				int text_width = GFX_truncateText(font.large, "SYSTEM", display_name_title, title_max_width, SCALE1(BUTTON_PADDING*2));
+				int text_width = GFX_truncateText(font.large, L("gamelist_title_system"), display_name_title, title_max_width, SCALE1(BUTTON_PADDING*2));
 				title_max_width = MIN(title_max_width, text_width);
 
 				SDL_Surface* text_title;
