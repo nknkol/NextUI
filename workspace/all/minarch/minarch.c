@@ -38,7 +38,7 @@ static int simple_mode = 0;
 static int was_threaded = 0;
 static int should_run_core = 1; // used by threaded video
 enum retro_pixel_format fmt;
-
+static int scroll_reset_this_frame = 0;
 static pthread_t		core_pt;
 static pthread_mutex_t	core_mx;
 static pthread_cond_t	core_rq; // not sure this is required
@@ -79,6 +79,15 @@ static int DEVICE_HEIGHT = 0; // FIXED_HEIGHT;
 static int DEVICE_PITCH = 0; // FIXED_PITCH;
 
 GFX_Renderer renderer;
+// 在文件顶部全局变量区域添加
+static int menu_scroll_state = 0;        // 当前是否有滚动文本
+static int menu_scroll_selected = -1;    // 正在滚动的菜单项索引
+static char menu_scroll_text[256] = "";  // 滚动文本内容
+static int menu_scroll_max_width = 0;    // 滚动区域最大宽度
+static TTF_Font* menu_scroll_font = NULL; // 滚动使用的字体
+static SDL_Color menu_scroll_color;      // 滚动文本颜色
+static int menu_scroll_x = 0;            // 滚动文本X坐标
+static int menu_scroll_y = 0;            // 滚动文本Y坐标
 
 ///////////////////////////////////////
 
@@ -2146,6 +2155,36 @@ static void Config_quit(void) {
 	for (int i=0; core_button_mapping[i].name; i++) {
 		free(core_button_mapping[i].name);
 	}
+}
+// 修改 Menu_resetScroll
+static void Menu_resetScroll(void) {
+    if (menu_scroll_state) {
+        GFX_clearLayers(LAYER_SCROLLTEXT);
+    }
+    menu_scroll_state = 0;
+    menu_scroll_selected = -1;
+    menu_scroll_text[0] = '\0';
+    menu_scroll_max_width = 0;
+    menu_scroll_font = NULL;
+}
+
+// 设置滚动状态
+static void Menu_setScroll(int selected_index, const char* text, TTF_Font* font, 
+                          SDL_Color color, int x, int y, int max_width) {
+    if (scroll_reset_this_frame) return;  // 防止同一帧内重新激活
+    
+    menu_scroll_state = GFX_resetScrollText(font, text, max_width);
+    if (menu_scroll_state) {
+        menu_scroll_selected = selected_index;
+        menu_scroll_selected = selected_index;
+        strncpy(menu_scroll_text, text, sizeof(menu_scroll_text) - 1);
+        menu_scroll_text[sizeof(menu_scroll_text) - 1] = '\0';
+        menu_scroll_max_width = max_width;
+        menu_scroll_font = font;
+        menu_scroll_color = color;
+        menu_scroll_x = x;
+        menu_scroll_y = y;
+    }
 }
 static void Config_readOptionsString(char* cfg) {
 	if (!cfg) return;
@@ -5557,16 +5596,21 @@ static int OptionPragmas_openMenu(MenuList* list, int i) {
 	return MENU_CALLBACK_NOP;
 }
 static int OptionShaders_optionChanged(MenuList* list, int i) {
-		MenuItem* item = &list->items[i];
-		Config_syncShaders(item->key, item->value);
-		applyShaderSettings();
-		for (int i = 0; i < config.shaders.count; i++) {
-			MenuItem* item = &list->items[i];
-			item->value = config.shaders.options[i].value;
-
-		}
-		if(i==1) initShaders();
-		return MENU_CALLBACK_NOP;
+    MenuItem* item = &list->items[i];
+    Config_syncShaders(item->key, item->value);
+    applyShaderSettings();
+    
+    for (int i = 0; i < config.shaders.count; i++) {
+        MenuItem* item = &list->items[i];
+        item->value = config.shaders.options[i].value;
+    }
+    
+    if(i==1) {
+        initShaders();
+        // 着色器重新初始化后，强制重置滚动状态
+        Menu_resetScroll();
+    }
+    return MENU_CALLBACK_NOP;
 }
 
 static MenuList ShaderOptions_menu = {
@@ -5662,7 +5706,6 @@ static int Menu_options(MenuList* list) {
 	int start = 0;
 	int end = MIN(count,max_visible_options);
 	int visible_rows = end;
-	
 	OptionSaveChanges_updateDesc();
 	
 	char rom_name[256];
@@ -5692,6 +5735,7 @@ static int Menu_options(MenuList* list) {
 		GFX_startFrame();
 		PAD_poll();
 		if (PAD_justRepeated(BTN_UP)) {
+			Menu_resetScroll();
 			selected -= 1;
 			if (selected<0) {
 				selected = count - 1;
@@ -5705,6 +5749,7 @@ static int Menu_options(MenuList* list) {
 			dirty = 1;
 		}
 		else if (PAD_justRepeated(BTN_DOWN)) {
+			Menu_resetScroll();
 			selected += 1;
 			if (selected>=count) {
 				selected = 0;
@@ -5721,6 +5766,7 @@ static int Menu_options(MenuList* list) {
 			MenuItem* item = &items[selected];
 			if (item->values && item->values!=button_labels) { // not an input binding
 				if (PAD_justRepeated(BTN_LEFT)) {
+					Menu_resetScroll();
 					if (item->value>0) item->value -= 1;
 					else {
 						int j;
@@ -5730,10 +5776,10 @@ static int Menu_options(MenuList* list) {
 				
 					if (item->on_change) item->on_change(list, selected);
 					else if (list->on_change) list->on_change(list, selected);
-				
 					dirty = 1;
 				}
 				else if (PAD_justRepeated(BTN_RIGHT)) {
+					Menu_resetScroll();
 					int i = 0;
 					while (item->values[i]) i++; 
 					if (item->value >= i) item->value = 0;
@@ -5743,14 +5789,15 @@ static int Menu_options(MenuList* list) {
 				
 					if (item->on_change) item->on_change(list, selected);
 					else if (list->on_change) list->on_change(list, selected);
-				
 					dirty = 1;
 				}
 			}
 		}
 		
 		if (PAD_justPressed(BTN_B)) {
+			Menu_resetScroll();
 			show_options = 0;
+			dirty = 1;
 		}
 		else if (PAD_justPressed(BTN_A)) {
 			MenuItem* item = &items[selected];
@@ -5801,9 +5848,15 @@ static int Menu_options(MenuList* list) {
 		}
 		
 		if (!defer_menu) PWR_update(&dirty, &show_settings, Menu_beforeSleep, Menu_afterSleep);
-		
 		if (defer_menu && PAD_justReleased(BTN_MENU)) defer_menu = false;
-		
+		if (menu_scroll_state && menu_scroll_selected >= 0) {
+			static Uint32 last_scroll_update = 0;
+			Uint32 now = SDL_GetTicks();
+			if (now - last_scroll_update >= 33) {
+				last_scroll_update = now;
+				dirty = 1;
+			}
+		}
 		GFX_clear(screen);
 
 		int ow = GFX_blitHardwareGroup(screen, show_settings);
@@ -5834,7 +5887,6 @@ static int Menu_options(MenuList* list) {
 		
 		char* desc = NULL;
 
-		// Universal vertical layout calculation
 		int list_item_count = MIN(count, max_visible_options);
 		int list_h = list_item_count * SCALE1(PILL_SIZE);
 		int available_h = screen->h - (SCALE1(PADDING + PILL_SIZE) * 2);
@@ -5842,116 +5894,97 @@ static int Menu_options(MenuList* list) {
 		
 		int selected_row = selected - start;
 
-		if (type==MENU_LIST) {
-			int ox = SCALE1(PADDING);
-			for (int i=start,j=0; i<end; i++,j++) {
-				MenuItem* item = &items[i];
-				SDL_Color text_color = COLOR_WHITE;
-				if (j==selected_row) {
-					text_color = uintToColour(THEME_COLOR5_255);
-					int w = 0;
-					TTF_SizeUTF8(font.large, item->name, &w, NULL);
-					w += SCALE1(BUTTON_PADDING*2);
-					GFX_blitPillDark(ASSET_WHITE_PILL, screen, &(SDL_Rect){ ox, oy+SCALE1(j*PILL_SIZE), w, SCALE1(PILL_SIZE) });
-					if (item->desc) desc = item->desc;
+		int ox = SCALE1(PADDING);
+		int mw = (type != MENU_LIST) ? (screen->w - SCALE1(PADDING*2)) : 0;
+		int max_pill_width = (screen->w / 2);
+
+		for (int i = start, j = 0; i < end; i++, j++) {
+			MenuItem* item = &items[i];
+			SDL_Color text_color = COLOR_WHITE;
+
+			int right_width = 0;
+			if (type != MENU_LIST) {
+				if (item->values) {
+					const char* value_text = "none";
+					if (item->value >= 0) {
+						int item_values_count = 0;
+						while (item->values && item->values[item_values_count]) item_values_count++;
+						if (item->value < item_values_count && item->values[item->value]) {
+							value_text = item->values[item->value];
+						}
+					}
+					TTF_SizeUTF8(font.large, value_text, &right_width, NULL);
+					right_width += SCALE1(OPTION_PADDING * 2);
+				} else {
+					right_width = SCALE1(OPTION_PADDING) + 10;
 				}
-				text = TTF_RenderUTF8_Blended(font.large, item->name, text_color);
-				SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){ ox+SCALE1(BUTTON_PADDING), oy+SCALE1((j*PILL_SIZE)+4) });
-				SDL_FreeSurface(text);
 			}
-		}
-		else if (type==MENU_FIXED || type==MENU_VAR || type==MENU_INPUT) { 
-			int mw = screen->w - SCALE1(PADDING*2);
-			int ox = SCALE1(PADDING);
-			for (int i=start,j=0; i<end; i++,j++) {
-				MenuItem* item = &items[i];
-				SDL_Color text_color = COLOR_WHITE;
-				if (j==selected_row) {
+
+			int full_text_w = 0;
+			TTF_SizeUTF8(font.large, item->name, &full_text_w, NULL);
+			
+			int pill_w = full_text_w + SCALE1(BUTTON_PADDING * 2);
+			if (pill_w > max_pill_width) {
+				pill_w = max_pill_width;
+			}
+			
+			int clip_w;
+			if (type == MENU_LIST) {
+				clip_w = pill_w - SCALE1(BUTTON_PADDING*2);
+			} else {
+				clip_w = mw - SCALE1(OPTION_PADDING * 2) - right_width;
+				if (pill_w < clip_w) {
+					clip_w = pill_w - SCALE1(BUTTON_PADDING * 2);
+				}
+			}
+
+			if (j == selected_row) {
+				text_color = uintToColour(THEME_COLOR5_255);
+				if (item->desc) desc = item->desc;
+
+				if (type != MENU_LIST) {
 					GFX_blitPillLight(ASSET_WHITE_PILL, screen, &(SDL_Rect){ ox, oy+SCALE1(j*PILL_SIZE), mw, SCALE1(PILL_SIZE) });
 				}
-				if (item->values == NULL) {
-					text = TTF_RenderUTF8_Blended(font.small, ">", COLOR_WHITE);
-					SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){ ox + mw - text->w - SCALE1(OPTION_PADDING), oy+SCALE1((j*PILL_SIZE)+3) });
-					SDL_FreeSurface(text);
-				} else {
-					if (item->value>=0) {
+				GFX_blitPillDark(ASSET_WHITE_PILL, screen, &(SDL_Rect){ ox, oy+SCALE1(j*PILL_SIZE), pill_w, SCALE1(PILL_SIZE) });
+				
+				// 核心修正点：使用 max_pill_width 来判断是否需要滚动
+				if (show_options && full_text_w > clip_w) {
+					if (menu_scroll_state == 0 || menu_scroll_selected != i) {
+						Menu_setScroll(i, item->name, font.large, text_color,  // 传入 i
+									ox + SCALE1(BUTTON_PADDING), oy + SCALE1((j*PILL_SIZE)+1),
+									clip_w);
+					}
+				}
+			}
+
+			if (type != MENU_LIST) {
+				if (item->values) {
+					if (item->value >= 0) {
 						int item_values_count = 0;
 						while ( item->values && item->values[item_values_count]) item_values_count++;
 						if (item->value >= 0 && item->value < item_values_count) {
 							const char *str = item->values[item->value];
 							text = TTF_RenderUTF8_Blended(font.large, str ? str : "none", str ? COLOR_WHITE : COLOR_GRAY);
 							if (text) {
-								SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){ ox + mw - text->w - SCALE1(OPTION_PADDING), oy+SCALE1((j*PILL_SIZE)+3) });
+								SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){ ox + mw - right_width + SCALE1(OPTION_PADDING), oy+SCALE1((j*PILL_SIZE)+3) });
 								SDL_FreeSurface(text);
 							}
 						}
 					}
+				} else {
+					text = TTF_RenderUTF8_Blended(font.small, ">", COLOR_WHITE);
+					SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){ ox + mw - right_width, oy+SCALE1((j*PILL_SIZE)+3) });
+					SDL_FreeSurface(text);
 				}
-				if (j==selected_row) {
-					int w = 0;
-					TTF_SizeUTF8(font.large, item->name, &w, NULL);
-					w += SCALE1(OPTION_PADDING*2);//测试
-					GFX_blitPillDark(ASSET_WHITE_PILL, screen, &(SDL_Rect){ ox, oy+SCALE1(j*PILL_SIZE), w, SCALE1(PILL_SIZE) });
-					text_color = uintToColour(THEME_COLOR5_255);
-					if (item->desc) desc = item->desc;
-				}
+			}
+
+			if (!(j == selected_row && menu_scroll_state && menu_scroll_selected == j)) {
 				text = TTF_RenderUTF8_Blended(font.large, item->name, text_color);
-				SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){ ox+SCALE1(OPTION_PADDING), oy+SCALE1((j*PILL_SIZE)+1) });
+				SDL_Rect text_clip_rect = {0, 0, clip_w, text->h};
+				SDL_BlitSurface(text, &text_clip_rect, screen, &(SDL_Rect){ ox+SCALE1(BUTTON_PADDING), oy+SCALE1((j*PILL_SIZE)+1) });
 				SDL_FreeSurface(text);
 			}
 		}
-		// else if (type==MENU_INPUT) {
-		// 	int mw = list->max_width;
-		// 	if (!mw) {
-		// 		int mrw = 0;
-		// 		for (int i=0; i<count; i++) {
-		// 			MenuItem* item = &items[i];
-		// 			int w = 0; int lw = 0; int rw = 0;
-		// 			TTF_SizeUTF8(font.small, item->name, &lw, NULL);
-		// 			if (!mrw || type!=MENU_INPUT) {
-		// 				if(item->values) {
-		// 					for (int j=0; item->values[j]; j++) {
-		// 						TTF_SizeUTF8(font.tiny, item->values[j], &rw, NULL);
-		// 						if (lw+rw>w) w = lw+rw;
-		// 						if (rw>mrw) mrw = rw;
-		// 					}
-		// 				}
-		// 			}
-		// 			else { w = lw + mrw; }
-		// 			w += SCALE1(OPTION_PADDING*4);
-		// 			if (w>mw) mw = w;
-		// 		}
-		// 		list->max_width = mw = MIN(mw, screen->w - SCALE1(PADDING *2));
-		// 	}
-		// 	int ox = (screen->w - mw) / 2;
-		// 	for (int i=start,j=0; i<end; i++,j++) {
-		// 		MenuItem* item = &items[i];
-		// 		SDL_Color text_color = COLOR_WHITE;
-		// 		if (j==selected_row) {
-		// 			GFX_blitPillLight(ASSET_BUTTON, screen, &(SDL_Rect){ ox, oy+SCALE1(j*PILL_SIZE), mw, SCALE1(PILL_SIZE) });
-		// 			int w = 0;
-		// 			TTF_SizeUTF8(font.small, item->name, &w, NULL);
-		// 			w += SCALE1(OPTION_PADDING*2);
-		// 			GFX_blitPillDark(ASSET_BUTTON, screen, &(SDL_Rect){ ox, oy+SCALE1(j*PILL_SIZE), w, SCALE1(PILL_SIZE) });
-		// 			text_color = uintToColour(THEME_COLOR5_255);
-		// 			if (item->desc) desc = item->desc;
-		// 		}
-		// 		text = TTF_RenderUTF8_Blended(font.small, item->name, text_color);
-		// 		SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){ ox+SCALE1(OPTION_PADDING), oy+SCALE1((j*PILL_SIZE)+1) });
-		// 		SDL_FreeSurface(text);
-		// 		if (await_input && j==selected_row) {
-		// 		}
-		// 		else if (item->value>=0) {
-		// 			int item_values_count = 0;
-		// 			while ( item->values && item->values[item_values_count]) item_values_count++;
-		// 			if (item->value >= 0 && item->value < item_values_count) {
-		// 				text = TTF_RenderUTF8_Blended(font.tiny, item->values[item->value], COLOR_WHITE);
-		// 				SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){ ox + mw - text->w - SCALE1(OPTION_PADDING), oy+SCALE1((j*PILL_SIZE)+3) });
-		// 				SDL_FreeSurface(text);
-		// 			}
-		// 		}
-		// 	}
-		// }
 
 		if (!desc && list->desc) desc = list->desc;
 		
@@ -5979,9 +6012,34 @@ static int Menu_options(MenuList* list) {
 		}
 		GFX_blitButtonGroup(button_hints, 1, screen, 1);
 		
-		GFX_flip(screen);
-		dirty = 0;
-		
+		// 在渲染循环的开始
+		if (menu_scroll_state && menu_scroll_selected >= 0) {
+			// 只有当前选中项需要滚动时才渲染
+			if (selected == menu_scroll_selected) {
+				GFX_clearLayers(LAYER_SCROLLTEXT);
+				GFX_scrollTextTexture(
+					menu_scroll_font,
+					menu_scroll_text,
+					menu_scroll_x,
+					menu_scroll_y,
+					menu_scroll_max_width,
+					0,
+					menu_scroll_color,
+					1.0f
+				);
+			} else {
+				// 如果选中项改变了，清除滚动状态
+				Menu_resetScroll();
+			}
+		} else if (menu_scroll_state) {
+			// 状态不一致时强制清除
+			GFX_clearLayers(LAYER_SCROLLTEXT);
+			menu_scroll_state = 0;
+		}
+        
+        GFX_flip(screen);
+        dirty = 0;
+		scroll_reset_this_frame = 0;  // 每帧结束时清除标志
 		hdmimon();
 	}
 	
