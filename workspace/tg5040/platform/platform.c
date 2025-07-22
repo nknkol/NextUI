@@ -1182,7 +1182,8 @@ void PLAT_scrollTextTexture(
     int x, int y,      // Position on target layer
     int w, int h,      // Clipping width and height
     SDL_Color color,
-    float transparency
+    float transparency,
+	int draw_background  // 新增参数
 ) {
     static int frame_counter = 0;
 	int padding = 30;
@@ -1202,7 +1203,18 @@ void PLAT_scrollTextTexture(
     SDL_Surface* text_surface = SDL_CreateRGBSurfaceWithFormat(0,
         single_width * 2 + padding, single_height, 32, SDL_PIXELFORMAT_RGBA8888);
 
-    SDL_FillRect(text_surface, NULL, THEME_COLOR1);
+    switch (draw_background) {
+        case 0: // 透明背景
+            SDL_FillRect(text_surface, NULL, SDL_MapRGBA(text_surface->format, 0, 0, 0, 0));
+            break;
+        case 1: // 主题背景（左侧用）
+            SDL_FillRect(text_surface, NULL, THEME_COLOR1);
+            break;
+        case 2: // 深色背景（右侧用）
+            // 使用与ASSET_BLACK_PILL相似的颜色
+            SDL_FillRect(text_surface, NULL, THEME_COLOR2);
+            break;
+    }
     SDL_BlitSurface(singleSur, NULL, text_surface, NULL);
 
     SDL_Rect second = { single_width + padding, 0, single_width, single_height };

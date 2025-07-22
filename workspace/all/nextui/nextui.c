@@ -2996,7 +2996,8 @@ int main (int argc, char *argv[]) {
 						max_width - SCALE1(BUTTON_PADDING * 2),
 						0,
 						text_color,
-						1
+						1,
+						1  // 要背景
 					);
 				} 
 				else {

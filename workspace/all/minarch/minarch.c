@@ -89,6 +89,15 @@ static SDL_Color menu_scroll_color;      // 滚动文本颜色
 static int menu_scroll_x = 0;            // 滚动文本X坐标
 static int menu_scroll_y = 0;            // 滚动文本Y坐标
 
+// 在文件顶部的全局变量区域添加
+static int right_scroll_state = 0;
+static int right_scroll_selected = -1;
+static char right_scroll_text[256] = "";
+static int right_scroll_max_width = 0;
+static TTF_Font* right_scroll_font = NULL;
+static SDL_Color right_scroll_color;
+static int right_scroll_x = 0;
+static int right_scroll_y = 0;
 ///////////////////////////////////////
 
 static struct Core {
@@ -2166,8 +2175,28 @@ static void Menu_resetScroll(void) {
     menu_scroll_text[0] = '\0';
     menu_scroll_max_width = 0;
     menu_scroll_font = NULL;
+    
+    // 重置右侧滚动
+    right_scroll_state = 0;
+    right_scroll_selected = -1;
+    right_scroll_text[0] = '\0';
+    right_scroll_max_width = 0;
+    right_scroll_font = NULL;
 }
-
+static void Menu_setRightScroll(int selected_index, const char* text, TTF_Font* font, 
+                               SDL_Color color, int x, int y, int max_width) {
+    right_scroll_state = GFX_resetScrollText(font, text, max_width);
+    if (right_scroll_state) {
+        right_scroll_selected = selected_index;  // 确保使用正确的索引
+        strncpy(right_scroll_text, text, sizeof(right_scroll_text) - 1);
+        right_scroll_text[sizeof(right_scroll_text) - 1] = '\0';
+        right_scroll_max_width = max_width;
+        right_scroll_font = font;
+        right_scroll_color = color;
+        right_scroll_x = x;
+        right_scroll_y = y;
+    }
+}
 // 设置滚动状态
 static void Menu_setScroll(int selected_index, const char* text, TTF_Font* font, 
                           SDL_Color color, int x, int y, int max_width) {
@@ -5800,6 +5829,7 @@ static int Menu_options(MenuList* list) {
 			dirty = 1;
 		}
 		else if (PAD_justPressed(BTN_A)) {
+			Menu_resetScroll();
 			MenuItem* item = &items[selected];
 			int result = MENU_CALLBACK_NOP;
 			if (item->on_confirm) result = item->on_confirm(list, selected);
@@ -5964,24 +5994,77 @@ static int Menu_options(MenuList* list) {
 						while ( item->values && item->values[item_values_count]) item_values_count++;
 						if (item->value >= 0 && item->value < item_values_count) {
 							const char *str = item->values[item->value];
-							text = TTF_RenderUTF8_Blended(font.large, str ? str : "none", str ? COLOR_WHITE : COLOR_GRAY);
-							if (text) {
-								SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){ ox + mw - right_width + SCALE1(OPTION_PADDING), oy+SCALE1((j*PILL_SIZE)+3) });
-								SDL_FreeSurface(text);
+							
+							// 恢复屏幕1/3的限制
+							int max_right_width = screen->w / 3;
+							int actual_right_width;
+							TTF_SizeUTF8(font.large, str ? str : "none", &actual_right_width, NULL);
+							
+							SDL_Color value_color = str ? COLOR_WHITE : COLOR_GRAY;
+							
+							// 计算右侧基准位置（右对齐的起始点）
+							int right_base_x = ox + mw - SCALE1(OPTION_PADDING);
+							
+							// 右侧滚动判断：使用屏幕1/3限制
+							if (j == selected_row && actual_right_width > max_right_width) {
+								if (show_options && (right_scroll_state == 0 || right_scroll_selected != selected)) {  // 使用 selected 而不是 i
+									Menu_setRightScroll(selected, str, font.large, value_color,  // 使用 selected
+													right_base_x - max_right_width,
+													oy+SCALE1((j*PILL_SIZE)+3),
+													max_right_width);
+								}
+							}
+							
+							// 渲染右侧文本
+							if (!(j == selected_row && right_scroll_state && right_scroll_selected == i)) {
+								char display_text[256];
+								const char* render_text;
+								int text_width;
+								
+								if (actual_right_width > max_right_width) {
+									// 文本过长，截断到1/3屏幕宽度
+									GFX_truncateText(font.large, str, display_text, max_right_width, 0);
+									render_text = display_text;
+									TTF_SizeUTF8(font.large, display_text, &text_width, NULL);
+								} else {
+									render_text = str ? str : "none";
+									text_width = actual_right_width;
+								}
+								
+								text = TTF_RenderUTF8_Blended(font.large, render_text, value_color);
+								if (text) {
+									// 右对齐：从右基准点向左偏移文本宽度
+									SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){ 
+										right_base_x - text_width, 
+										oy+SCALE1((j*PILL_SIZE)+3) 
+									});
+									SDL_FreeSurface(text);
+								}
 							}
 						}
 					}
 				} else {
+					// ">" 符号保持不变
 					text = TTF_RenderUTF8_Blended(font.small, ">", COLOR_WHITE);
 					SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){ ox + mw - right_width, oy+SCALE1((j*PILL_SIZE)+3) });
 					SDL_FreeSurface(text);
 				}
 			}
 
-			if (!(j == selected_row && menu_scroll_state && menu_scroll_selected == j)) {
-				text = TTF_RenderUTF8_Blended(font.large, item->name, text_color);
-				SDL_Rect text_clip_rect = {0, 0, clip_w, text->h};
-				SDL_BlitSurface(text, &text_clip_rect, screen, &(SDL_Rect){ ox+SCALE1(BUTTON_PADDING), oy+SCALE1((j*PILL_SIZE)+1) });
+			if (!(j == selected_row && menu_scroll_state && menu_scroll_selected == i)) {
+				// 对于非滚动状态的文本，如果过长就截断
+				if (full_text_w > clip_w) {
+					// 文本过长，需要截断
+					char display_text[256];
+					GFX_truncateText(font.large, item->name, display_text, clip_w, 0);
+					text = TTF_RenderUTF8_Blended(font.large, display_text, text_color);
+					SDL_BlitSurface(text, NULL, screen, &(SDL_Rect){ ox+SCALE1(BUTTON_PADDING), oy+SCALE1((j*PILL_SIZE)+1) });
+				} else {
+					// 文本不长，直接渲染
+					text = TTF_RenderUTF8_Blended(font.large, item->name, text_color);
+					SDL_Rect text_clip_rect = {0, 0, clip_w, text->h};
+					SDL_BlitSurface(text, &text_clip_rect, screen, &(SDL_Rect){ ox+SCALE1(BUTTON_PADDING), oy+SCALE1((j*PILL_SIZE)+1) });
+				}
 				SDL_FreeSurface(text);
 			}
 		}
@@ -6014,28 +6097,36 @@ static int Menu_options(MenuList* list) {
 		
 		// 在渲染循环的开始
 		if (menu_scroll_state && menu_scroll_selected >= 0) {
-			// 只有当前选中项需要滚动时才渲染
-			if (selected == menu_scroll_selected) {
-				GFX_clearLayers(LAYER_SCROLLTEXT);
-				GFX_scrollTextTexture(
-					menu_scroll_font,
-					menu_scroll_text,
-					menu_scroll_x,
-					menu_scroll_y,
-					menu_scroll_max_width,
-					0,
-					menu_scroll_color,
-					1.0f
-				);
-			} else {
-				// 如果选中项改变了，清除滚动状态
-				Menu_resetScroll();
-			}
-		} else if (menu_scroll_state) {
-			// 状态不一致时强制清除
-			GFX_clearLayers(LAYER_SCROLLTEXT);
-			menu_scroll_state = 0;
+			//GFX_clearLayers(LAYER_SCROLLTEXT);
+			
+			GFX_scrollTextTexture(
+				menu_scroll_font,
+				menu_scroll_text,
+				menu_scroll_x,
+				menu_scroll_y,
+				menu_scroll_max_width,
+				0,
+				menu_scroll_color,
+				1.0f,
+				1  // 要背景
+			);
+		} 
+		// 右侧滚动（修改）
+		if (right_scroll_state && right_scroll_selected >= 0) {
+			GFX_scrollTextTexture(
+				right_scroll_font,
+				right_scroll_text,
+				right_scroll_x,
+				right_scroll_y,
+				right_scroll_max_width,
+				0,
+				right_scroll_color,
+				1.0f,
+				2  // 不需要背景
+			);
 		}
+
+
         
         GFX_flip(screen);
         dirty = 0;

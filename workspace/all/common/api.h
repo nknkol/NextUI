@@ -574,7 +574,8 @@ void PLAT_scrollTextTexture(
     int x, int y,      // Position on target layer
     int w, int h,      // Clipping width and height
     SDL_Color color,
-    float transparency
+    float transparency,
+	int draw_background  // 新增参数
 );
 void drawTextWithCache(TTF_Font* font, const char* text, SDL_Color color, SDL_Rect* destRect);
 void PLAT_present();
