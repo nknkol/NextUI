@@ -98,6 +98,16 @@ static TTF_Font* right_scroll_font = NULL;
 static SDL_Color right_scroll_color;
 static int right_scroll_x = 0;
 static int right_scroll_y = 0;
+
+// 在现有的right_scroll相关变量后添加
+static int bottom_scroll_state = 0;
+static int bottom_scroll_selected = -1;
+static char bottom_scroll_text[512] = "";  // 使用更大的缓冲区
+static int bottom_scroll_max_width = 0;
+static TTF_Font* bottom_scroll_font = NULL;
+static SDL_Color bottom_scroll_color;
+static int bottom_scroll_x = 0;
+static int bottom_scroll_y = 0;
 ///////////////////////////////////////
 
 static struct Core {
@@ -2182,6 +2192,13 @@ static void Menu_resetScroll(void) {
     right_scroll_text[0] = '\0';
     right_scroll_max_width = 0;
     right_scroll_font = NULL;
+    
+    // 添加：重置底部滚动
+    bottom_scroll_state = 0;
+    bottom_scroll_selected = -1;
+    bottom_scroll_text[0] = '\0';
+    bottom_scroll_max_width = 0;
+    bottom_scroll_font = NULL;
 }
 static void Menu_setRightScroll(int selected_index, const char* text, TTF_Font* font, 
                                SDL_Color color, int x, int y, int max_width) {
@@ -2195,6 +2212,20 @@ static void Menu_setRightScroll(int selected_index, const char* text, TTF_Font* 
         right_scroll_color = color;
         right_scroll_x = x;
         right_scroll_y = y;
+    }
+}
+static void Menu_setBottomScroll(int selected_index, const char* text, TTF_Font* font, 
+                                SDL_Color color, int x, int y, int max_width) {
+    bottom_scroll_state = GFX_resetScrollText(font, text, max_width);
+    if (bottom_scroll_state) {
+        bottom_scroll_selected = selected_index;
+        strncpy(bottom_scroll_text, text, sizeof(bottom_scroll_text) - 1);
+        bottom_scroll_text[sizeof(bottom_scroll_text) - 1] = '\0';
+        bottom_scroll_max_width = max_width;
+        bottom_scroll_font = font;
+        bottom_scroll_color = color;
+        bottom_scroll_x = x;
+        bottom_scroll_y = y;
     }
 }
 // 设置滚动状态
@@ -5885,6 +5916,19 @@ static int Menu_options(MenuList* list) {
 			if (now - last_scroll_update >= 33) {
 				last_scroll_update = now;
 				dirty = 1;
+				// GFX_clearLayers(4); //BUG:清除滚动层，但是带来了闪烁
+			}
+		}
+		// 添加：底部滚动更新检查
+		if (bottom_scroll_state && bottom_scroll_selected >= 0) {
+			static Uint32 last_bottom_scroll_update = 0;
+			Uint32 now = SDL_GetTicks();
+			if (now - last_bottom_scroll_update >= 33) {
+				last_bottom_scroll_update = now;
+				dirty = 1;
+				// if (!menu_scroll_state || menu_scroll_selected < 0) {
+				// 	GFX_clearLayers(4);
+				// }
 			}
 		}
 		GFX_clear(screen);
@@ -5932,23 +5976,15 @@ static int Menu_options(MenuList* list) {
 			MenuItem* item = &items[i];
 			SDL_Color text_color = COLOR_WHITE;
 
-			int right_width = 0;
-			if (type != MENU_LIST) {
-				if (item->values) {
-					const char* value_text = "none";
-					if (item->value >= 0) {
-						int item_values_count = 0;
-						while (item->values && item->values[item_values_count]) item_values_count++;
-						if (item->value < item_values_count && item->values[item->value]) {
-							value_text = item->values[item->value];
-						}
-					}
-					TTF_SizeUTF8(font.large, value_text, &right_width, NULL);
-					right_width += SCALE1(OPTION_PADDING * 2);
-				} else {
-					right_width = SCALE1(OPTION_PADDING) + 10;
-				}
+		int right_width = 0;
+		if (type != MENU_LIST) {
+			if (item->values) {
+				// 使用固定的右侧最大宽度，而不是实际文本宽度
+				right_width = screen->w / 3 + SCALE1(OPTION_PADDING * 2);
+			} else {
+				right_width = SCALE1(OPTION_PADDING) + 10;
 			}
+		}
 
 			int full_text_w = 0;
 			TTF_SizeUTF8(font.large, item->name, &full_text_w, NULL);
@@ -6070,15 +6106,40 @@ static int Menu_options(MenuList* list) {
 		}
 
 		if (!desc && list->desc) desc = list->desc;
-		
+
 		if (desc) {
-			int w,h;
-			GFX_sizeText(font.tiny, desc, SCALE1(12), &w,&h);
-			GFX_blitText(font.tiny, desc, SCALE1(12), COLOR_WHITE, screen, &(SDL_Rect){
-				(screen->w - w) / 2,
-				oy + list_h + SCALE1(PADDING),
-				w,h
-			});
+			int w, h;
+			GFX_sizeText(font.tiny, desc, SCALE1(12), &w, &h);
+			int desc_y = oy + list_h + SCALE1(PADDING);
+			
+			// 计算可用宽度（留出合理边距）
+			int available_width = screen->w - SCALE1(PADDING * 4);  // 左右各留2倍padding的边距
+			
+			// 检查文本是否超出可用宽度
+			if (w > available_width) {
+				// 文本过长，需要滚动
+				// 滚动区域居中显示
+				int scroll_x = (screen->w - available_width) / 2;
+				if (show_options && (bottom_scroll_state == 0 || bottom_scroll_selected != selected)) {
+					Menu_setBottomScroll(selected, desc, font.tiny, COLOR_WHITE,
+									scroll_x, desc_y, available_width);
+				}
+			} else {
+				// 文本不长，保持原有的居中逻辑
+				if (!(bottom_scroll_state && bottom_scroll_selected == selected)) {
+					GFX_blitText(font.tiny, desc, SCALE1(12), COLOR_WHITE, screen, &(SDL_Rect){
+						(screen->w - w) / 2,  // 恢复原有的居中计算
+						desc_y,
+						w, h
+					});
+				}
+			}
+		} else {
+			// 没有描述文本时，重置底部滚动状态
+			if (bottom_scroll_state && bottom_scroll_selected == selected) {
+				bottom_scroll_state = 0;
+				bottom_scroll_selected = -1;
+			}
 		}
 		
 		if (show_settings && !GetHDMI()) GFX_blitHardwareHints(screen, show_settings);
@@ -6094,7 +6155,13 @@ static int Menu_options(MenuList* list) {
 				break;
 		}
 		GFX_blitButtonGroup(button_hints, 1, screen, 1);
-		
+		// // 在第一个滚动文本渲染前清除layer4一次，避免重影和闪烁
+		// if ((menu_scroll_state && menu_scroll_selected >= 0) ||
+		// 	(right_scroll_state && right_scroll_selected >= 0) ||
+		// 	(bottom_scroll_state && bottom_scroll_selected >= 0)) {
+		// 	//GFX_clearLayers(4);
+		// 	GFX_clearLayers(LAYER_SCROLLTEXT);
+		// }
 		// 在渲染循环的开始
 		if (menu_scroll_state && menu_scroll_selected >= 0) {
 			//GFX_clearLayers(LAYER_SCROLLTEXT);
@@ -6123,6 +6190,21 @@ static int Menu_options(MenuList* list) {
 				right_scroll_color,
 				1.0f,
 				2  // 不需要背景
+			);
+		}
+
+		// 添加：底部描述滚动渲染
+		if (bottom_scroll_state && bottom_scroll_selected >= 0) {
+			GFX_scrollTextTexture(
+				bottom_scroll_font,
+				bottom_scroll_text,
+				bottom_scroll_x,
+				bottom_scroll_y,
+				bottom_scroll_max_width,
+				0,  // h参数，可以是文字高度
+				bottom_scroll_color,
+				1.0f,
+				3  // draw_background：0=不绘制背景，适合底部描述
 			);
 		}
 

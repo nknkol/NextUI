@@ -1207,12 +1207,16 @@ void PLAT_scrollTextTexture(
         case 0: // 透明背景
             SDL_FillRect(text_surface, NULL, SDL_MapRGBA(text_surface->format, 0, 0, 0, 0));
             break;
-        case 1: // 主题背景（左侧用）
+        case 1: // 白色背景（左侧用）
             SDL_FillRect(text_surface, NULL, THEME_COLOR1);
             break;
-        case 2: // 深色背景（右侧用）
+        case 2: // 主题背景（右侧用）
             // 使用与ASSET_BLACK_PILL相似的颜色
             SDL_FillRect(text_surface, NULL, THEME_COLOR2);
+            break;
+		case 3: // 黑色背景（右侧用）
+		    // 使用与ASSET_BLACK_PILL相似的颜色
+            SDL_FillRect(text_surface, NULL, THEME_COLOR7);
             break;
     }
     SDL_BlitSurface(singleSur, NULL, text_surface, NULL);
