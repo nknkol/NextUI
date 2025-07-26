@@ -27,6 +27,7 @@
 #include <dirent.h>
 #include <SDL2/SDL_image.h>
 #include <SDL2/SDL.h>
+#include "lang.h"
 
 ///////////////////////////////////////
 
@@ -108,6 +109,59 @@ static TTF_Font* bottom_scroll_font = NULL;
 static SDL_Color bottom_scroll_color;
 static int bottom_scroll_x = 0;
 static int bottom_scroll_y = 0;
+
+// //菜单全局变量
+// static struct { ... } menu;
+// static MenuList options_menu;
+// 将这些定义提前，确保编译器先认识它们
+typedef struct MenuList MenuList;
+typedef struct MenuItem MenuItem;
+
+enum {
+	MENU_CALLBACK_NOP,
+	MENU_CALLBACK_EXIT,
+	MENU_CALLBACK_NEXT_ITEM,
+};
+
+typedef int (*MenuList_callback_t)(MenuList* list, int i);
+
+struct MenuItem {
+	char* name;
+	char* desc;
+	char** values;
+	char* key; // optional, used by options
+	int id; // optional, used by bindings
+	int value;
+	MenuList* submenu;
+	MenuList_callback_t on_confirm;
+	MenuList_callback_t on_change;
+};
+
+enum {
+	MENU_LIST, // eg. save and main menu
+	MENU_VAR, // eg. frontend
+	MENU_FIXED, // eg. emulator
+	MENU_INPUT, // eg. renders like but MENU_VAR but handles input differently
+};
+
+struct MenuList {
+	int type;
+	int max_width; // cached on first draw
+	char* desc;
+	char* category; // currently displayed category
+	MenuItem* items;
+	MenuList_callback_t on_confirm;
+	MenuList_callback_t on_change;
+};
+
+// --- 函数前向声明 ---
+static int OptionFrontend_openMenu(MenuList* list, int i);
+static int OptionEmulator_openMenu(MenuList* list, int i);
+static int OptionShaders_openMenu(MenuList* list, int i);
+static int OptionCheats_openMenu(MenuList* list, int i);
+static int OptionControls_openMenu(MenuList* list, int i);
+static int OptionShortcuts_openMenu(MenuList* list, int i);
+static int OptionSaveChanges_openMenu(MenuList* list, int i);
 ///////////////////////////////////////
 
 static struct Core {
@@ -4951,15 +5005,64 @@ static struct {
 	.save_exists = 0,
 	.preview_exists = 0,
 	
-	.items = {
-		[ITEM_CONT] = "Continue",
-		[ITEM_SAVE] = "Save",
-		[ITEM_LOAD] = "Load",
-		[ITEM_OPTS] = "Options",
-		[ITEM_QUIT] = "Quit",
-	}
+	// .items = {
+	// 	[ITEM_CONT] = "Continue",
+	// 	[ITEM_SAVE] = "Save",
+	// 	[ITEM_LOAD] = "Load",
+	// 	[ITEM_OPTS] = "Options",
+	// 	[ITEM_QUIT] = "Quit",
+	// }
 };
 
+static MenuList options_menu;
+// 2. 为主菜单创建一个专属的字符串初始化函数
+// 为主菜单创建专属的字符串初始化函数
+static void MainMenu_InitStrings(void) {
+    menu.items[ITEM_CONT] = (char*)L("menu_continue");
+    menu.items[ITEM_SAVE]  = (char*)L("menu_save");
+    menu.items[ITEM_LOAD]  = (char*)L("menu_load");
+    if (simple_mode) {
+        menu.items[ITEM_OPTS] = (char*)L("menu_reset");
+    } else {
+        menu.items[ITEM_OPTS] = (char*)L("menu_options");
+    }
+    menu.items[ITEM_QUIT] = (char*)L("menu_quit");
+}
+
+// 为选项菜单创建一个专属的字符串初始化函数（修正版）
+static void OptionsMenu_InitStrings(void) {
+    // 使用 malloc 在运行时分配内存，而不是用 static 在编译时初始化
+    // +1 是为了最后的 {NULL} 结束标志
+    int item_count = 7;
+    MenuItem* menu_items = (MenuItem*)malloc(sizeof(MenuItem) * (item_count + 1));
+    if (!menu_items) return; // 内存分配失败处理
+
+    // 逐个为每个菜单项赋值
+    menu_items[0] = (MenuItem){(char*)L("options_frontend"), "NextUI (" BUILD_DATE " " BUILD_HASH ")", .on_confirm = OptionFrontend_openMenu};
+    menu_items[1] = (MenuItem){(char*)L("options_emulator"), NULL, .on_confirm = OptionEmulator_openMenu};
+    menu_items[2] = (MenuItem){(char*)L("options_shaders"), NULL, .on_confirm = OptionShaders_openMenu};
+    menu_items[3] = (MenuItem){(char*)L("options_cheats"), NULL, .on_confirm = OptionCheats_openMenu};
+    menu_items[4] = (MenuItem){(char*)L("options_controls"), NULL, .on_confirm = OptionControls_openMenu};
+    menu_items[5] = (MenuItem){(char*)L("options_shortcuts"), NULL, .on_confirm = OptionShortcuts_openMenu};
+    menu_items[6] = (MenuItem){(char*)L("options_save_changes"), NULL, .on_confirm = OptionSaveChanges_openMenu};
+    
+    // 设置数组的结束标志
+    menu_items[7] = (MenuItem){NULL};
+
+    options_menu.type = MENU_LIST;
+    options_menu.items = menu_items;
+    
+    // 动态更新描述信息
+    if (options_menu.items[1].name != NULL) {
+        options_menu.items[1].desc = (char*)core.version;
+    }
+}
+
+// “主”初始化函数，统一管理所有字符串的加载
+static void UI_InitAllStrings(void) {
+    MainMenu_InitStrings();
+    OptionsMenu_InitStrings();
+}
 void Menu_init(void) {
 	menu.overlay = SDL_CreateRGBSurfaceWithFormat(SDL_SWSURFACE,DEVICE_WIDTH,DEVICE_HEIGHT,32,SDL_PIXELFORMAT_RGBA8888);
 	SDL_SetSurfaceBlendMode(menu.overlay, SDL_BLENDMODE_BLEND);
@@ -5024,41 +5127,41 @@ void Menu_afterSleep() {
 	setOverclock(overclock);
 }
 
-typedef struct MenuList MenuList;
-typedef struct MenuItem MenuItem;
-enum {
-	MENU_CALLBACK_NOP,
-	MENU_CALLBACK_EXIT,
-	MENU_CALLBACK_NEXT_ITEM,
-};
-typedef int (*MenuList_callback_t)(MenuList* list, int i);
-typedef struct MenuItem {
-	char* name;
-	char* desc;
-	char** values;
-	char* key; // optional, used by options
-	int id; // optional, used by bindings
-	int value;
-	MenuList* submenu;
-	MenuList_callback_t on_confirm;
-	MenuList_callback_t on_change;
-} MenuItem;
+// typedef struct MenuList MenuList;
+// typedef struct MenuItem MenuItem;
+// enum {
+// 	MENU_CALLBACK_NOP,
+// 	MENU_CALLBACK_EXIT,
+// 	MENU_CALLBACK_NEXT_ITEM,
+// };
+// typedef int (*MenuList_callback_t)(MenuList* list, int i);
+// typedef struct MenuItem {
+// 	char* name;
+// 	char* desc;
+// 	char** values;
+// 	char* key; // optional, used by options
+// 	int id; // optional, used by bindings
+// 	int value;
+// 	MenuList* submenu;
+// 	MenuList_callback_t on_confirm;
+// 	MenuList_callback_t on_change;
+// } MenuItem;
 
-enum {
-	MENU_LIST, // eg. save and main menu
-	MENU_VAR, // eg. frontend
-	MENU_FIXED, // eg. emulator
-	MENU_INPUT, // eg. renders like but MENU_VAR but handles input differently
-};
-typedef struct MenuList {
-	int type;
-	int max_width; // cached on first draw
-	char* desc;
-	char* category; // currently displayed category
-	MenuItem* items;
-	MenuList_callback_t on_confirm;
-	MenuList_callback_t on_change;
-} MenuList;
+// enum {
+// 	MENU_LIST, // eg. save and main menu
+// 	MENU_VAR, // eg. frontend
+// 	MENU_FIXED, // eg. emulator
+// 	MENU_INPUT, // eg. renders like but MENU_VAR but handles input differently
+// };
+// typedef struct MenuList {
+// 	int type;
+// 	int max_width; // cached on first draw
+// 	char* desc;
+// 	char* category; // currently displayed category
+// 	MenuItem* items;
+// 	MenuList_callback_t on_confirm;
+// 	MenuList_callback_t on_change;
+// } MenuList;
 
 static int Menu_message(char* message, char** pairs) {
 	GFX_setMode(MODE_MAIN);
@@ -5725,21 +5828,21 @@ static int OptionShaders_openMenu(MenuList* list, int i) {
 	return MENU_CALLBACK_NOP;
 }
 
-static MenuList options_menu = {
-	.type = MENU_LIST,
-	.items = (MenuItem[]) {
-		{"Frontend", "NextUI (" BUILD_DATE " " BUILD_HASH ")",.on_confirm=OptionFrontend_openMenu},
-		{"Emulator",.on_confirm=OptionEmulator_openMenu},
-		{"Shaders",.on_confirm=OptionShaders_openMenu},
-		// TODO: this should be hidden with no cheats available
-		{"Cheats",.on_confirm=OptionCheats_openMenu},
-		{"Controls",.on_confirm=OptionControls_openMenu},
-		{"Shortcuts",.on_confirm=OptionShortcuts_openMenu}, 
-		{"Save Changes",.on_confirm=OptionSaveChanges_openMenu},
-		{NULL},
-		{NULL},
-	}
-};
+// static MenuList options_menu = {
+// 	.type = MENU_LIST,
+// 	.items = (MenuItem[]) {
+// 		{"Frontend", "NextUI (" BUILD_DATE " " BUILD_HASH ")",.on_confirm=OptionFrontend_openMenu},
+// 		{"Emulator",.on_confirm=OptionEmulator_openMenu},
+// 		{"Shaders",.on_confirm=OptionShaders_openMenu},
+// 		// TODO: this should be hidden with no cheats available
+// 		{"Cheats",.on_confirm=OptionCheats_openMenu},
+// 		{"Controls",.on_confirm=OptionControls_openMenu},
+// 		{"Shortcuts",.on_confirm=OptionShortcuts_openMenu}, 
+// 		{"Save Changes",.on_confirm=OptionSaveChanges_openMenu},
+// 		{NULL},
+// 		{NULL},
+// 	}
+// };
 
 static void OptionSaveChanges_updateDesc(void) {
 	options_menu.items[4].desc = getSaveDesc();
@@ -7040,6 +7143,9 @@ int main(int argc , char* argv[]) {
 	Config_init();
 	Config_readOptions(); // cores with boot logo option (eg. gb) need to load options early
 	setOverclock(overclock);
+
+	// 初始化多语言字符
+	UI_InitAllStrings(); // 2. 一次性初始化所有UI字符串
 
 	Core_init();
 
