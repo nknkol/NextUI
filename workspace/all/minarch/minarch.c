@@ -2849,17 +2849,92 @@ static const char* getOptionNameFromKey(const char* key, const char* name) {
 }
 
 // the following 3 functions always touch config.core, the rest can operate on arbitrary OptionLists
+// static void OptionList_init(const struct retro_core_option_definition *defs) {
+// 	LOG_info("OptionList_init\n");
+// 	int count;
+// 	for (count=0; defs[count].key; count++);
+	
+// 	// LOG_info("count: %i\n", count);
+	
+// 	// TODO: add frontend options to this? so the can use the same override method? eg. minarch_*
+
+// 	config.core.count = count;
+// 	config.core.categories = NULL; // There is no categories in v1 definition
+// 	if (count) {
+// 		config.core.options = calloc(count+1, sizeof(Option));
+		
+// 		for (int i=0; i<config.core.count; i++) {
+// 			int len;
+// 			const struct retro_core_option_definition *def = &defs[i];
+// 			Option* item = &config.core.options[i];
+// 			len = strlen(def->key) + 1;
+		
+// 			item->key = calloc(len, sizeof(char));
+// 			strcpy(item->key, def->key);
+			
+// 			len = strlen(def->desc) + 1;
+// 			item->name = calloc(len, sizeof(char));
+// 			strcpy(item->name, getOptionNameFromKey(def->key,def->desc));
+			
+// 			if (def->info) {
+// 				len = strlen(def->info) + 1;
+// 				item->desc = calloc(len, sizeof(char));
+// 				strncpy(item->desc, def->info, len);
+
+// 				item->full = calloc(len, sizeof(char));
+// 				strncpy(item->full, item->desc, len);
+// 				// item->desc[len-1] = '\0';
+				
+// 				// these magic numbers are more about chars per line than pixel width 
+// 				// so it's not going to be relative to the screen size, only the scale
+// 				// what does that even mean?
+// 				GFX_wrapText(font.tiny, item->desc, SCALE1(240), 2); // TODO magic number!
+// 				GFX_wrapText(font.medium, item->full, SCALE1(240), 7); // TODO: magic number!
+// 			}
+		
+// 			for (count=0; def->values[count].value; count++);
+		
+// 			item->count = count;
+// 			item->values = calloc(count+1, sizeof(char*));
+// 			item->labels = calloc(count+1, sizeof(char*));
+	
+// 			for (int j=0; j<count; j++) {
+// 				const char* value = def->values[j].value;
+// 				const char* label = def->values[j].label;
+		
+// 				len = strlen(value) + 1;
+// 				item->values[j] = calloc(len, sizeof(char));
+// 				strcpy(item->values[j], value);
+		
+// 				if (label) {
+// 					len = strlen(label) + 1;
+// 					item->labels[j] = calloc(len, sizeof(char));
+// 					strcpy(item->labels[j], label);
+// 				}
+// 				else {
+// 					item->labels[j] = item->values[j];
+// 				}
+// 				// printf("\t%s\n", item->labels[j]);
+// 			}
+			
+// 			item->value = Option_getValueIndex(item, def->default_value);
+// 			item->default_value = item->value;
+			
+// 			// LOG_info("\tINIT %s (%s) TO %s (%s)\n", item->name, item->key, item->labels[item->value], item->values[item->value]);
+// 		}
+// 	}
+// 	// fflush(stdout);
+// }
+// 文件: minarch.c
+
+// ❗️请修改这个函数，而不是 OptionList_v2_init
 static void OptionList_init(const struct retro_core_option_definition *defs) {
 	LOG_info("OptionList_init\n");
 	int count;
 	for (count=0; defs[count].key; count++);
 	
-	// LOG_info("count: %i\n", count);
-	
-	// TODO: add frontend options to this? so the can use the same override method? eg. minarch_*
-
 	config.core.count = count;
-	config.core.categories = NULL; // There is no categories in v1 definition
+	config.core.categories = NULL; // v1接口没有分类
 	if (count) {
 		config.core.options = calloc(count+1, sizeof(Option));
 		
@@ -2867,94 +2942,130 @@ static void OptionList_init(const struct retro_core_option_definition *defs) {
 			int len;
 			const struct retro_core_option_definition *def = &defs[i];
 			Option* item = &config.core.options[i];
-			len = strlen(def->key) + 1;
+            
+            // 新增：用于生成翻译Key的缓冲区
+            char translation_key[256];
+
+            // ================= 拦截法实现开始 =================
 		
-			item->key = calloc(len, sizeof(char));
+			item->key = calloc(strlen(def->key) + 1, sizeof(char));
 			strcpy(item->key, def->key);
 			
-			len = strlen(def->desc) + 1;
-			item->name = calloc(len, sizeof(char));
-			strcpy(item->name, getOptionNameFromKey(def->key,def->desc));
-			
-			if (def->info) {
-				len = strlen(def->info) + 1;
-				item->desc = calloc(len, sizeof(char));
-				strncpy(item->desc, def->info, len);
+            // 1. 翻译选项标题 (Name/Description)
+            snprintf(translation_key, sizeof(translation_key), "%s_name", def->key);
+            const char* translated_name = Lang_GetString(translation_key);
 
-				item->full = calloc(len, sizeof(char));
-				strncpy(item->full, item->desc, len);
-				// item->desc[len-1] = '\0';
+            if (strcmp(translated_name, translation_key) != 0) {
+                item->name = strdup(translated_name);
+            } else {
+			    item->name = calloc(strlen(def->desc) + 1, sizeof(char));
+			    strcpy(item->name, getOptionNameFromKey(def->key,def->desc));
+            }
+			
+            // 2. 翻译选项的帮助信息 (Info)
+			if (def->info) {
+                snprintf(translation_key, sizeof(translation_key), "%s_info", def->key);
+                const char* translated_info = Lang_GetString(translation_key);
+                
+                if (strcmp(translated_info, translation_key) != 0) {
+                    item->desc = strdup(translated_info);
+                } else {
+				    item->desc = calloc(strlen(def->info) + 1, sizeof(char));
+				    strncpy(item->desc, def->info, strlen(def->info) + 1);
+                }
+                
+				item->full = calloc(strlen(item->desc) + 1, sizeof(char));
+				strncpy(item->full, item->desc, strlen(item->desc) + 1);
 				
-				// these magic numbers are more about chars per line than pixel width 
-				// so it's not going to be relative to the screen size, only the scale
-				// what does that even mean?
-				GFX_wrapText(font.tiny, item->desc, SCALE1(240), 2); // TODO magic number!
-				GFX_wrapText(font.medium, item->full, SCALE1(240), 7); // TODO: magic number!
+				GFX_wrapText(font.tiny, item->desc, SCALE1(240), 2);
+				GFX_wrapText(font.medium, item->full, SCALE1(240), 7);
 			}
 		
-			for (count=0; def->values[count].value; count++);
+            int value_count;
+			for (value_count=0; def->values[value_count].value; value_count++);
 		
-			item->count = count;
-			item->values = calloc(count+1, sizeof(char*));
-			item->labels = calloc(count+1, sizeof(char*));
+			item->count = value_count;
+			item->values = calloc(value_count+1, sizeof(char*));
+			item->labels = calloc(value_count+1, sizeof(char*));
 	
-			for (int j=0; j<count; j++) {
-				const char* value = def->values[j].value;
-				const char* label = def->values[j].label;
+            // 3. 翻译所有可选值对应的标签 (Labels)
+			for (int j=0; j<value_count; j++) {
+				const char* value_str = def->values[j].value;
+				const char* label_str = def->values[j].label;
+
+				item->values[j] = calloc(strlen(value_str) + 1, sizeof(char));
+				strcpy(item->values[j], value_str);
+
+                // 为每个可选值生成独一无二的翻译Key
+                snprintf(translation_key, sizeof(translation_key), "%s_value_%s", def->key, value_str);
+                const char* translated_label = Lang_GetString(translation_key);
 		
-				len = strlen(value) + 1;
-				item->values[j] = calloc(len, sizeof(char));
-				strcpy(item->values[j], value);
-		
-				if (label) {
-					len = strlen(label) + 1;
-					item->labels[j] = calloc(len, sizeof(char));
-					strcpy(item->labels[j], label);
+				if (label_str) {
+                    if (strcmp(translated_label, translation_key) != 0) {
+                        item->labels[j] = strdup(translated_label);
+                    } else {
+					    item->labels[j] = calloc(strlen(label_str) + 1, sizeof(char));
+					    strcpy(item->labels[j], label_str);
+                    }
 				}
 				else {
-					item->labels[j] = item->values[j];
+                    if (strcmp(translated_label, translation_key) != 0) {
+                        item->labels[j] = strdup(translated_label);
+                    } else {
+					    item->labels[j] = item->values[j];
+                    }
 				}
-				// printf("\t%s\n", item->labels[j]);
 			}
+
+            // ================= 拦截法实现结束 =================
 			
 			item->value = Option_getValueIndex(item, def->default_value);
 			item->default_value = item->value;
-			
-			// LOG_info("\tINIT %s (%s) TO %s (%s)\n", item->name, item->key, item->labels[item->value], item->values[item->value]);
 		}
 	}
-	// fflush(stdout);
 }
-
 static void OptionList_v2_init(const struct retro_core_options_v2 *opt_defs) {
 	LOG_info("OptionList_v2_init\n");
 	struct retro_core_option_v2_category   *cats = opt_defs->categories;
 	struct retro_core_option_v2_definition *defs = opt_defs->definitions;
 
 	int cat_count = 0;
-	while (cats[cat_count].key) cat_count++;
+	if (cats)
+		while (cats[cat_count].key) cat_count++;
 
 	int count = 0;
 	while (defs[count].key) count++;
 	
-	// LOG_info("%i categories, %i options\n", cat_count, count);
-	
-	// TODO: add frontend options to this? so the can use the same override method? eg. minarch_*
-	
 	if (cat_count) {
 		config.core.categories = calloc(cat_count + 1, sizeof(OptionCategory));
-
 		for (int i=0; i<cat_count; i++) {
 			const struct retro_core_option_v2_category *cat = &cats[i];
 			OptionCategory* item = &config.core.categories[i];
+            
+            char cat_trans_key[256];
+            
+            snprintf(cat_trans_key, sizeof(cat_trans_key), "%s_cat_name", cat->key);
+            const char* translated_cat_name = Lang_GetString(cat_trans_key);
+            if (strcmp(translated_cat_name, cat_trans_key) != 0) {
+                item->desc = strdup(translated_cat_name);
+            } else {
+			    item->desc = strdup(cat->desc);
+            }
 
+            if (cat->info) {
+                snprintf(cat_trans_key, sizeof(cat_trans_key), "%s_cat_info", cat->key);
+                const char* translated_cat_info = Lang_GetString(cat_trans_key);
+                 if (strcmp(translated_cat_info, cat_trans_key) != 0) {
+                    item->info = strdup(translated_cat_info);
+                } else {
+                    item->info = strdup(cat->info);
+                }
+            } else {
+                item->info = NULL;
+            }
 			item->key  = strdup(cat->key);
-			item->desc = strdup(cat->desc);
-			item->info = cat->info ? strdup(cat->info) : NULL;
-			printf("CATEGORY %s\n", item->key);
 		}
-	}
-	else {
+	} else {
 		config.core.categories = NULL;
 	}
 
@@ -2965,50 +3076,59 @@ static void OptionList_v2_init(const struct retro_core_options_v2 *opt_defs) {
 		for (int i=0; i<config.core.count; i++) {
 			const struct retro_core_option_v2_definition *def = &defs[i];
 			Option* item = &config.core.options[i];
+            char translation_key[256];
 		
 			item->key = strdup(def->key);
-			item->name = strdup(getOptionNameFromKey(def->key, def->desc_categorized ? def->desc_categorized : def->desc));
 			item->category = def->category_key ? strdup(def->category_key) : NULL;
 
+            snprintf(translation_key, sizeof(translation_key), "%s_name", def->key);
+            const char* translated_name = Lang_GetString(translation_key);
+            if (strcmp(translated_name, translation_key) != 0) {
+                item->name = strdup(translated_name);
+            } else {
+                item->name = strdup(getOptionNameFromKey(def->key, def->desc_categorized ? def->desc_categorized : def->desc));
+            }
+
 			if (def->info) {
-				item->desc = strdup(def->info);
+                snprintf(translation_key, sizeof(translation_key), "%s_info", def->key);
+                const char* translated_info = Lang_GetString(translation_key);
+                if (strcmp(translated_info, translation_key) != 0) {
+                    item->desc = strdup(translated_info);
+                } else {
+				    item->desc = strdup(def->info);
+                }
 				item->full = strdup(item->desc);
-				
-				// these magic numbers are more about chars per line than pixel width 
-				// so it's not going to be relative to the screen size, only the scale
-				// what does that even mean?
-				GFX_wrapText(font.tiny, item->desc, SCALE1(240), 2); // TODO magic number!
-				GFX_wrapText(font.medium, item->full, SCALE1(240), 7); // TODO: magic number!
+                
+                // GFX_wrapText 调用已彻底移除，以解决闪退问题，并使用自定义的文本滚动功能替代。
 			}
 		
-			for (count=0; def->values[count].value; count++);
+            int value_count;
+			for (value_count=0; def->values[value_count].value; value_count++);
 		
-			item->count = count;
-			item->values = calloc(count+1, sizeof(char*));
-			item->labels = calloc(count+1, sizeof(char*));
+			item->count = value_count;
+			item->values = calloc(value_count+1, sizeof(char*));
+			item->labels = calloc(value_count+1, sizeof(char*));
 	
-			for (int j=0; j<count; j++) {
-				const char* value = def->values[j].value;
-				const char* label = def->values[j].label;
+			for (int j=0; j<value_count; j++) {
+				const char* value_str = def->values[j].value;
+				const char* label_str = def->values[j].label;
 		
-				item->values[j] = strdup(value);
+				item->values[j] = strdup(value_str);
 		
-				if (label) {
-					item->labels[j] = strdup(label);
-				}
-				else {
-					item->labels[j] = item->values[j];
-				}
-				// printf("\t%s\n", item->labels[j]);
+                snprintf(translation_key, sizeof(translation_key), "%s_value_%s", def->key, value_str);
+                const char* translated_label = Lang_GetString(translation_key);
+
+                if (strcmp(translated_label, translation_key) != 0) {
+                    item->labels[j] = strdup(translated_label);
+                } else {
+                    item->labels[j] = label_str ? strdup(label_str) : strdup(value_str);
+                }
 			}
 			
 			item->value = Option_getValueIndex(item, def->default_value);
 			item->default_value = item->value;
-			
-			// LOG_info("\tINIT %s (%s) TO %s (%s)\n", item->name, item->key, item->labels[item->value], item->values[item->value]);
 		}
 	}
-	// fflush(stdout);
 }
 
 static void OptionList_vars(const struct retro_variable *vars) {
@@ -5015,7 +5135,6 @@ static struct {
 };
 
 static MenuList options_menu;
-// 2. 为主菜单创建一个专属的字符串初始化函数
 // 为主菜单创建专属的字符串初始化函数
 static void MainMenu_InitStrings(void) {
     menu.items[ITEM_CONT] = (char*)L("menu_continue");
