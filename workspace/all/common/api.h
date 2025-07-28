@@ -575,7 +575,8 @@ void PLAT_scrollTextTexture(
     int w, int h,      // Clipping width and height
     SDL_Color color,
     float transparency,
-	int draw_background  // 功能是是否添加背景（1透明、2白色、3主题色）
+	int draw_background,  // 功能是是否添加背景（1透明、2白色、3主题色）
+	int advance_scroll // <-- Add this new parameter
 );
 void drawTextWithCache(TTF_Font* font, const char* text, SDL_Color color, SDL_Rect* destRect);
 void PLAT_present();

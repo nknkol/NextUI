@@ -1111,7 +1111,8 @@ void PLAT_scrollTextTexture(
     int w, int h,      // Clipping width and height
     SDL_Color color,
     float transparency
-	int draw_background  // 新增参数
+	int draw_background,  // 新增参数
+	int advance_scroll // <-- Add this new parameter
 ) {
     static int frame_counter = 0;
 	int padding = 30;
