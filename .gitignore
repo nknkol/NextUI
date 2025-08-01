@@ -9,6 +9,7 @@ build
 releases
 toolchains
 libretro-common
+usr
 Roms
 **/cores/src
 **/cores/output
