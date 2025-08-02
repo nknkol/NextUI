@@ -1161,76 +1161,61 @@ void PLAT_animateSurface(
 	SDL_DestroyTexture(tempTexture);
 }
 
-// static int text_offset = 0;
+static int text_offset = 0;
 
 int PLAT_resetScrollText(TTF_Font* font, const char* in_name,int max_width) {
-    int text_width, text_height;
-
+	int text_width, text_height;
+	
     TTF_SizeUTF8(font, in_name, &text_width, &text_height);
 
-    // text_offset = 0;  // <-- 删除这一行
+	text_offset = 0;
 
-    if (text_width <= max_width) {
-        return 0;
-    } else {
-        return 1;
-    }
+	if (text_width <= max_width) {
+		return 0;
+	} else {
+		return 1;
+	}
 }
 void PLAT_scrollTextTexture(
     TTF_Font* font,
     const char* in_name,
-    int x, int y,
-    int w, int h,
+    int x, int y,      // Position on target layer
+    int w, int h,      // Clipping width and height
     SDL_Color color,
     float transparency,
-	int draw_background,
-    int advance_scroll // 新增参数：1表示推进滚动，0表示静止
+	int draw_background  // 新增参数
 ) {
-    static int text_offsets[3] = {0, 0, 0};
-    static const char* last_in_names[3] = {NULL, NULL, NULL};
-
-    int instance_index = draw_background - 1;
-    if (instance_index < 0 || instance_index >= 3) {
-        instance_index = 0;
-    }
-
-    if (in_name == NULL) {
-        text_offsets[instance_index] = 0;
-        last_in_names[instance_index] = NULL;
-        return;
-    }
-
-    if (last_in_names[instance_index] != in_name) {
-        text_offsets[instance_index] = 0;
-        last_in_names[instance_index] = in_name;
-    }
-
+    static int frame_counter = 0;
 	int padding = 30;
 
     if (transparency < 0.0f) transparency = 0.0f;
     if (transparency > 1.0f) transparency = 1.0f;
     color.a = (Uint8)(transparency * 255);
 
+    // Render the original text only once
     SDL_Surface* singleSur = TTF_RenderUTF8_Blended(font, in_name, color);
     if (!singleSur) return;
 
     int single_width = singleSur->w;
     int single_height = singleSur->h;
 
+    // Create a surface to hold two copies side by side with padding
     SDL_Surface* text_surface = SDL_CreateRGBSurfaceWithFormat(0,
         single_width * 2 + padding, single_height, 32, SDL_PIXELFORMAT_RGBA8888);
 
     switch (draw_background) {
-        case 0:
+        case 0: // 透明背景
             SDL_FillRect(text_surface, NULL, SDL_MapRGBA(text_surface->format, 0, 0, 0, 0));
             break;
-        case 1:
+        case 1: // 白色背景（左侧用）
             SDL_FillRect(text_surface, NULL, THEME_COLOR1);
             break;
-        case 2:
+        case 2: // 主题背景（右侧用）
+            // 使用与ASSET_BLACK_PILL相似的颜色
             SDL_FillRect(text_surface, NULL, THEME_COLOR2);
             break;
-		case 3:
+		case 3: // 黑色背景（右侧用）
+		    // 使用与ASSET_BLACK_PILL相似的颜色
             SDL_FillRect(text_surface, NULL, THEME_COLOR7);
             break;
     }
@@ -1241,6 +1226,7 @@ void PLAT_scrollTextTexture(
     SDL_FreeSurface(singleSur);
 
     SDL_Texture* full_text_texture = SDL_CreateTextureFromSurface(vid.renderer, text_surface);
+    int full_text_width = text_surface->w;
     SDL_FreeSurface(text_surface);
 
     if (!full_text_texture) return;
@@ -1250,7 +1236,7 @@ void PLAT_scrollTextTexture(
 
     SDL_SetRenderTarget(vid.renderer, vid.target_layer4);
 
-    SDL_Rect src_rect = { text_offsets[instance_index], 0, w, single_height };
+    SDL_Rect src_rect = { text_offset, 0, w, single_height };
     SDL_Rect dst_rect = { x, y, w, single_height };
 
     SDL_RenderCopy(vid.renderer, full_text_texture, &src_rect, &dst_rect);
@@ -1258,12 +1244,21 @@ void PLAT_scrollTextTexture(
     SDL_SetRenderTarget(vid.renderer, NULL);
     SDL_DestroyTexture(full_text_texture);
 
-    if (single_width > w && advance_scroll) { // 只有在被告知时才推进
-        text_offsets[instance_index] += 2;
-        if (text_offsets[instance_index] >= single_width + padding) {
-            text_offsets[instance_index] = 0;
+    // Scroll only if text is wider than clip width
+    if (single_width > w) {
+        frame_counter++;
+        if (frame_counter >= 0) {
+            text_offset += 2;
+            if (text_offset >= single_width + padding) {
+                text_offset = 0;
+            }
+            frame_counter = 0;
         }
+    } else {
+        text_offset = 0;
     }
+
+    PLAT_GPU_Flip();
 }
 
 // super fast without update_texture to draw screen

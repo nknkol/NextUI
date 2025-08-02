@@ -2997,8 +2997,7 @@ int main (int argc, char *argv[]) {
 						0,
 						text_color,
 						1,
-						1,  // 要背景
-						1  // 不需要滚动
+						1  // 要背景
 					);
 				} 
 				else {
