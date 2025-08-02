@@ -17,6 +17,7 @@ REQUIRES_FILEMGR=other/NextCommander
 
 all: readmes
 	cd show && make
+	cd llayerdemo && make
 
 early: $(REQUIRES_EVTEST) $(REQUIRES_JSTEST) $(REQUIRES_UNZIP60) $(REQUIRES_FILEMGR)
 	mkdir -p other
