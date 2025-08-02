@@ -6426,7 +6426,7 @@ static int Menu_options(MenuList* list) {
 				0,  // h参数，可以是文字高度
 				bottom_scroll_color,
 				1.0f,
-				3  // draw_background：0=不绘制背景，适合底部描述
+				0  // draw_background：0=不绘制背景，适合底部描述
 			);
 		}
 

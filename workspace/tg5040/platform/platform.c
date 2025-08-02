@@ -1162,13 +1162,27 @@ void PLAT_animateSurface(
 }
 
 static int text_offset = 0;
+static int scroll_delay_counter = 0;
+// 添加以下定义
+#define MAX_CONCURRENT_SCROLLERS 5 // 支持最多5个同时滚动的文本实例
+typedef struct {
+    int x;                      // 使用x坐标作为唯一标识符
+    int y;                      // 使用y坐标作为唯一标识符
+    int active;                 // 标记此实例是否在用
+    int text_offset;            // 独立的文本偏移量
+    int scroll_delay_counter;   // 独立的延迟计数器
+    char text_content[512];     // 当前滚动的文本内容，用于检测变化
+} ScrollInstance;
 
+static ScrollInstance scroll_instances[MAX_CONCURRENT_SCROLLERS] = {0}; // 初始化所有实例
 int PLAT_resetScrollText(TTF_Font* font, const char* in_name,int max_width) {
 	int text_width, text_height;
 	
     TTF_SizeUTF8(font, in_name, &text_width, &text_height);
 
-	text_offset = 0;
+	// 这个函数不再需要重置全局状态
+	// text_offset = 0;
+	// scroll_delay_counter = 0;
 
 	if (text_width <= max_width) {
 		return 0;
@@ -1176,6 +1190,7 @@ int PLAT_resetScrollText(TTF_Font* font, const char* in_name,int max_width) {
 		return 1;
 	}
 }
+
 void PLAT_scrollTextTexture(
     TTF_Font* font,
     const char* in_name,
@@ -1183,52 +1198,73 @@ void PLAT_scrollTextTexture(
     int w, int h,      // Clipping width and height
     SDL_Color color,
     float transparency,
-	int draw_background  // 新增参数
+	int draw_background
 ) {
-    static int frame_counter = 0;
-	int padding = 30;
+    // --- 状态管理：为每个滚动文本实例寻找或创建独立的状态 ---
+    ScrollInstance* instance = NULL;
+    int first_inactive = -1;
+
+    for (int i = 0; i < MAX_CONCURRENT_SCROLLERS; i++) {
+        if (scroll_instances[i].active) {
+            if (scroll_instances[i].x == x && scroll_instances[i].y == y) {
+                instance = &scroll_instances[i];
+                break;
+            }
+        } else if (first_inactive == -1) {
+            first_inactive = i;
+        }
+    }
+
+    // 如果没有找到匹配的实例，就在第一个空闲槽位创建一个新的
+    if (!instance && first_inactive != -1) {
+        instance = &scroll_instances[first_inactive];
+        instance->x = x;
+        instance->y = y;
+        instance->active = 1;
+        // 强制内容为空，以便下面的逻辑检测到变化并重置状态
+        strncpy(instance->text_content, "", sizeof(instance->text_content));
+    }
+
+    // 如果没有可用的实例槽位，则直接返回
+    if (!instance) return;
+
+    // 如果文本内容发生变化，重置此实例的状态（包括延迟和偏移）
+    if (strncmp(instance->text_content, in_name, sizeof(instance->text_content)) != 0) {
+        strncpy(instance->text_content, in_name, sizeof(instance->text_content) - 1);
+        instance->text_content[sizeof(instance->text_content) - 1] = '\0';
+        instance->text_offset = 0;
+        instance->scroll_delay_counter = 0;
+    }
+
+    // --- 渲染逻辑 (与之前类似) ---
+    int padding = 30;
 
     if (transparency < 0.0f) transparency = 0.0f;
     if (transparency > 1.0f) transparency = 1.0f;
     color.a = (Uint8)(transparency * 255);
 
-    // Render the original text only once
     SDL_Surface* singleSur = TTF_RenderUTF8_Blended(font, in_name, color);
     if (!singleSur) return;
 
     int single_width = singleSur->w;
     int single_height = singleSur->h;
 
-    // Create a surface to hold two copies side by side with padding
     SDL_Surface* text_surface = SDL_CreateRGBSurfaceWithFormat(0,
         single_width * 2 + padding, single_height, 32, SDL_PIXELFORMAT_RGBA8888);
 
     switch (draw_background) {
-        case 0: // 透明背景
-            SDL_FillRect(text_surface, NULL, SDL_MapRGBA(text_surface->format, 0, 0, 0, 0));
-            break;
-        case 1: // 白色背景（左侧用）
-            SDL_FillRect(text_surface, NULL, THEME_COLOR1);
-            break;
-        case 2: // 主题背景（右侧用）
-            // 使用与ASSET_BLACK_PILL相似的颜色
-            SDL_FillRect(text_surface, NULL, THEME_COLOR2);
-            break;
-		case 3: // 黑色背景（右侧用）
-		    // 使用与ASSET_BLACK_PILL相似的颜色
-            SDL_FillRect(text_surface, NULL, THEME_COLOR7);
-            break;
+        case 0: SDL_FillRect(text_surface, NULL, SDL_MapRGBA(text_surface->format, 0, 0, 0, 0)); break;
+        case 1: SDL_FillRect(text_surface, NULL, THEME_COLOR1); break;
+        case 2: SDL_FillRect(text_surface, NULL, THEME_COLOR2); break;
+		case 3: SDL_FillRect(text_surface, NULL, THEME_COLOR7); break;
     }
     SDL_BlitSurface(singleSur, NULL, text_surface, NULL);
-
     SDL_Rect second = { single_width + padding, 0, single_width, single_height };
     SDL_BlitSurface(singleSur, NULL, text_surface, &second);
     SDL_FreeSurface(singleSur);
 
     SDL_Texture* full_text_texture = SDL_CreateTextureFromSurface(vid.renderer, text_surface);
-    int full_text_width = text_surface->w;
     SDL_FreeSurface(text_surface);
-
     if (!full_text_texture) return;
 
     SDL_SetTextureBlendMode(full_text_texture, SDL_BLENDMODE_BLEND);
@@ -1236,26 +1272,40 @@ void PLAT_scrollTextTexture(
 
     SDL_SetRenderTarget(vid.renderer, vid.target_layer4);
 
-    SDL_Rect src_rect = { text_offset, 0, w, single_height };
+    if (draw_background == 0) {
+        SDL_SetRenderDrawBlendMode(vid.renderer, SDL_BLENDMODE_NONE);
+        SDL_SetRenderDrawColor(vid.renderer, 0, 0, 0, 0);
+        SDL_Rect clear_rect = { x, y, w, single_height };
+        SDL_RenderFillRect(vid.renderer, &clear_rect);
+        SDL_SetRenderDrawBlendMode(vid.renderer, SDL_BLENDMODE_BLEND);
+    }
+    
+    // 使用实例的独立偏移量进行绘制
+    SDL_Rect src_rect = { instance->text_offset, 0, w, single_height };
     SDL_Rect dst_rect = { x, y, w, single_height };
-
     SDL_RenderCopy(vid.renderer, full_text_texture, &src_rect, &dst_rect);
 
     SDL_SetRenderTarget(vid.renderer, NULL);
     SDL_DestroyTexture(full_text_texture);
 
-    // Scroll only if text is wider than clip width
+    // --- 滚动与循环逻辑 (使用实例的状态) ---
     if (single_width > w) {
-        frame_counter++;
-        if (frame_counter >= 0) {
-            text_offset += 2;
-            if (text_offset >= single_width + padding) {
-                text_offset = 0;
+        // --- 修改点 ---
+        const int SCROLL_INITIAL_DELAY_FRAMES = 45; // 首次滚动前延迟0.75秒
+        const int SCROLL_LOOP_DELAY_FRAMES = 30;    // 每次循环后延迟0.5秒
+
+        if (instance->scroll_delay_counter < SCROLL_INITIAL_DELAY_FRAMES) {
+            instance->scroll_delay_counter++;
+        } else {
+            instance->text_offset += 2;
+            if (instance->text_offset >= single_width + padding) {
+                instance->text_offset = 0;
+                // 重置为一个较短的延迟时间，实现流畅循环
+                instance->scroll_delay_counter = SCROLL_INITIAL_DELAY_FRAMES - SCROLL_LOOP_DELAY_FRAMES;
             }
-            frame_counter = 0;
         }
     } else {
-        text_offset = 0;
+        instance->text_offset = 0;
     }
 
     PLAT_GPU_Flip();
