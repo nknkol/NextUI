@@ -2848,86 +2848,6 @@ static const char* getOptionNameFromKey(const char* key, const char* name) {
 	return name;
 }
 
-// the following 3 functions always touch config.core, the rest can operate on arbitrary OptionLists
-// static void OptionList_init(const struct retro_core_option_definition *defs) {
-// 	LOG_info("OptionList_init\n");
-// 	int count;
-// 	for (count=0; defs[count].key; count++);
-	
-// 	// LOG_info("count: %i\n", count);
-	
-// 	// TODO: add frontend options to this? so the can use the same override method? eg. minarch_*
-
-// 	config.core.count = count;
-// 	config.core.categories = NULL; // There is no categories in v1 definition
-// 	if (count) {
-// 		config.core.options = calloc(count+1, sizeof(Option));
-		
-// 		for (int i=0; i<config.core.count; i++) {
-// 			int len;
-// 			const struct retro_core_option_definition *def = &defs[i];
-// 			Option* item = &config.core.options[i];
-// 			len = strlen(def->key) + 1;
-		
-// 			item->key = calloc(len, sizeof(char));
-// 			strcpy(item->key, def->key);
-			
-// 			len = strlen(def->desc) + 1;
-// 			item->name = calloc(len, sizeof(char));
-// 			strcpy(item->name, getOptionNameFromKey(def->key,def->desc));
-			
-// 			if (def->info) {
-// 				len = strlen(def->info) + 1;
-// 				item->desc = calloc(len, sizeof(char));
-// 				strncpy(item->desc, def->info, len);
-
-// 				item->full = calloc(len, sizeof(char));
-// 				strncpy(item->full, item->desc, len);
-// 				// item->desc[len-1] = '\0';
-				
-// 				// these magic numbers are more about chars per line than pixel width 
-// 				// so it's not going to be relative to the screen size, only the scale
-// 				// what does that even mean?
-// 				GFX_wrapText(font.tiny, item->desc, SCALE1(240), 2); // TODO magic number!
-// 				GFX_wrapText(font.medium, item->full, SCALE1(240), 7); // TODO: magic number!
-// 			}
-		
-// 			for (count=0; def->values[count].value; count++);
-		
-// 			item->count = count;
-// 			item->values = calloc(count+1, sizeof(char*));
-// 			item->labels = calloc(count+1, sizeof(char*));
-	
-// 			for (int j=0; j<count; j++) {
-// 				const char* value = def->values[j].value;
-// 				const char* label = def->values[j].label;
-		
-// 				len = strlen(value) + 1;
-// 				item->values[j] = calloc(len, sizeof(char));
-// 				strcpy(item->values[j], value);
-		
-// 				if (label) {
-// 					len = strlen(label) + 1;
-// 					item->labels[j] = calloc(len, sizeof(char));
-// 					strcpy(item->labels[j], label);
-// 				}
-// 				else {
-// 					item->labels[j] = item->values[j];
-// 				}
-// 				// printf("\t%s\n", item->labels[j]);
-// 			}
-			
-// 			item->value = Option_getValueIndex(item, def->default_value);
-// 			item->default_value = item->value;
-			
-// 			// LOG_info("\tINIT %s (%s) TO %s (%s)\n", item->name, item->key, item->labels[item->value], item->values[item->value]);
-// 		}
-// 	}
-// 	// fflush(stdout);
-// }
-// 文件: minarch.c
-
-// ❗️请修改这个函数，而不是 OptionList_v2_init
 static void OptionList_init(const struct retro_core_option_definition *defs) {
 	LOG_info("OptionList_init\n");
 	int count;
@@ -2977,7 +2897,6 @@ static void OptionList_init(const struct retro_core_option_definition *defs) {
 				item->full = calloc(strlen(item->desc) + 1, sizeof(char));
 				strncpy(item->full, item->desc, strlen(item->desc) + 1);
 				
-				GFX_wrapText(font.tiny, item->desc, SCALE1(240), 2);
 				GFX_wrapText(font.medium, item->full, SCALE1(240), 7);
 			}
 		

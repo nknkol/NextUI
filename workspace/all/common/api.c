@@ -728,66 +728,91 @@ int GFX_getTextWidth(TTF_Font* font, const char* in_name, char* out_name, int ma
 }
 
 
-int GFX_wrapText(TTF_Font* font, char* str, int max_width, int max_lines) {
-	if (!str) return 0;
-	
-	int line_width;
-	int max_line_width = 0;
-	char* line = str;
-	char buffer[MAX_PATH];
-	
-	TTF_SizeUTF8(font, line, &line_width, NULL);
-	if (line_width<=max_width) {
-		line_width = GFX_truncateText(font,line,buffer,max_width,0);
-		strcpy(line,buffer);
-		return line_width;
-	}
-	
-	char* prev = NULL;
-	char* tmp = line;
-	int lines = 1;
-	int i = 0;
-	while (!max_lines || lines<max_lines) {
-		tmp = strchr(tmp, ' ');
-		if (!tmp) {
-			if (prev) {
-				TTF_SizeUTF8(font, line, &line_width, NULL);
-				if (line_width>=max_width) {
-					if (line_width>max_line_width) max_line_width = line_width;
-					prev[0] = '\n';
-					line = prev + 1;
-				}
-			}
-			break;
-		}
-		tmp[0] = '\0';
-		
-		TTF_SizeUTF8(font, line, &line_width, NULL);
-
-		if (line_width>=max_width) { // wrap
-			if (line_width>max_line_width) max_line_width = line_width;
-			tmp[0] = ' ';
-			tmp += 1;
-			prev[0] = '\n';
-			prev += 1;
-			line = prev;
-			lines += 1;
-		}
-		else { // continue
-			tmp[0] = ' ';
-			prev = tmp;
-			tmp += 1;
-		}
-		i += 1;
-	}
-	
-	line_width = GFX_truncateText(font,line,buffer,max_width,0);
-	strcpy(line,buffer);
-	
-	if (line_width>max_line_width) max_line_width = line_width;
-	return max_line_width;
+// 请将此辅助函数添加到 GFX_wrapText 函数之前
+static inline int utf8_char_len_helper(const char *s) {
+    if (!s || !*s) return 0;
+    unsigned char c = *s;
+    if (c < 0x80) return 1;
+    if ((c & 0xE0) == 0xC0) return 2;
+    if ((c & 0xF0) == 0xE0) return 3;
+    if ((c & 0xF8) == 0xF0) return 4;
+    return 1; // 针对无效或连续字节的回退
 }
 
+int GFX_wrapText(TTF_Font* font, char* str, int max_width, int max_lines) {
+    if (!str || !*str || max_width <= 0) {
+        return 0;
+    }
+
+    int max_line_width = 0;
+    char *line_start = str;
+    int lines = 1;
+
+    while (*line_start && (max_lines == 0 || lines < max_lines)) {
+        char *scanner = line_start;
+        char *last_break_pos = NULL;
+        int current_width = 0;
+        
+        // 从 line_start 开始查找最长的适合子字符串
+        while (*scanner) {
+            int char_len = utf8_char_len_helper(scanner);
+            if (char_len == 0) break;
+
+            // 为了测量，我们需要一个以null结尾的字符串
+            char temp_char_store = *(scanner + char_len);
+            *(scanner + char_len) = '\0';
+            TTF_SizeUTF8(font, line_start, &current_width, NULL);
+            *(scanner + char_len) = temp_char_store; // 恢复字符
+
+            if (current_width > max_width) {
+                break; 
+            }
+            last_break_pos = scanner;
+            scanner += char_len;
+        }
+        
+        if (*scanner) { // 如果没到字符串末尾，就需要换行
+            char* break_pos = NULL;
+
+            if (last_break_pos && last_break_pos > line_start) {
+                // 找到了一个有效的换行点
+                break_pos = last_break_pos + utf8_char_len_helper(last_break_pos);
+            } else { // 第一个单词/字符本身就太长了，或者没有找到有效的换行点
+                // 在第一个字符后强制换行
+                break_pos = line_start + utf8_char_len_helper(line_start);
+            }
+
+            if (*break_pos) {
+                // 在修改前测量最终行宽
+                char temp = *break_pos;
+                *break_pos = '\0';
+                TTF_SizeUTF8(font, line_start, &current_width, NULL);
+                if (current_width > max_line_width) max_line_width = current_width;
+                *break_pos = temp;
+
+                // 将 break_pos 处的字符替换为 '\n'
+                int replace_len = utf8_char_len_helper(break_pos);
+                char *tail = break_pos + replace_len;
+                int tail_len = strlen(tail);
+
+                *break_pos = '\n';
+                // 移动字符串的剩余部分
+                memmove(break_pos + 1, tail, tail_len + 1); // +1 是为了 null 终止符
+
+                line_start = break_pos + 1;
+                lines++;
+            } else {
+                 line_start = break_pos; // 到达末尾
+            }
+        } else { // 到达字符串末尾，处理完成
+            TTF_SizeUTF8(font, line_start, &current_width, NULL);
+            if (current_width > max_line_width) max_line_width = current_width;
+            break;
+        }
+    }
+
+    return max_line_width;
+}
 ///////////////////////////////
 
 // scale_blend (and supporting logic) from picoarch
