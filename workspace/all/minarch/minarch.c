@@ -2231,9 +2231,7 @@ static void Config_quit(void) {
 }
 // 修改 Menu_resetScroll
 static void Menu_resetScroll(void) {
-    if (menu_scroll_state) {
-        GFX_clearLayers(LAYER_SCROLLTEXT);
-    }
+    GFX_clearLayers(LAYER_SCROLLTEXT);
     menu_scroll_state = 0;
     menu_scroll_selected = -1;
     menu_scroll_text[0] = '\0';
@@ -5165,43 +5163,8 @@ void Menu_afterSleep() {
 	setOverclock(overclock);
 }
 
-// typedef struct MenuList MenuList;
-// typedef struct MenuItem MenuItem;
-// enum {
-// 	MENU_CALLBACK_NOP,
-// 	MENU_CALLBACK_EXIT,
-// 	MENU_CALLBACK_NEXT_ITEM,
-// };
-// typedef int (*MenuList_callback_t)(MenuList* list, int i);
-// typedef struct MenuItem {
-// 	char* name;
-// 	char* desc;
-// 	char** values;
-// 	char* key; // optional, used by options
-// 	int id; // optional, used by bindings
-// 	int value;
-// 	MenuList* submenu;
-// 	MenuList_callback_t on_confirm;
-// 	MenuList_callback_t on_change;
-// } MenuItem;
-
-// enum {
-// 	MENU_LIST, // eg. save and main menu
-// 	MENU_VAR, // eg. frontend
-// 	MENU_FIXED, // eg. emulator
-// 	MENU_INPUT, // eg. renders like but MENU_VAR but handles input differently
-// };
-// typedef struct MenuList {
-// 	int type;
-// 	int max_width; // cached on first draw
-// 	char* desc;
-// 	char* category; // currently displayed category
-// 	MenuItem* items;
-// 	MenuList_callback_t on_confirm;
-// 	MenuList_callback_t on_change;
-// } MenuList;
-
 static int Menu_message(char* message, char** pairs) {
+	GFX_clearLayers(LAYER_SCROLLTEXT);
 	GFX_setMode(MODE_MAIN);
 	int dirty = 1;
 	while (1) {
