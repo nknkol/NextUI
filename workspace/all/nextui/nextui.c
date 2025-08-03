@@ -2997,7 +2997,7 @@ int main (int argc, char *argv[]) {
 						0,
 						text_color,
 						1,
-						1  // 要背景
+						17  // 要背景
 					);
 				} 
 				else {
@@ -3028,11 +3028,12 @@ int main (int argc, char *argv[]) {
 				// This should either be 16(.66666667) or make proper use of SDL_Ticks to only wait for the next render pass.
 				SDL_Delay(17); 
 			}
+			// GFX_sync_fixed_rate(60.0);
 			SDL_UnlockMutex(animqueueMutex);
 			SDL_UnlockMutex(thumbqueueMutex);
 			SDL_UnlockMutex(bgqueueMutex);
 		}
-	
+		GFX_sync_fixed_rate(60.0);
 		SDL_LockMutex(frameMutex);
 		frameReady = true;
 		SDL_CondSignal(flipCond);
