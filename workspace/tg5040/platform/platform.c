@@ -27,6 +27,7 @@
 static int finalScaleFilter=GL_LINEAR;
 static int reloadShaderTextures = 1;
 
+
 // shader stuff
 
 typedef struct Shader {
@@ -1173,7 +1174,7 @@ typedef struct {
     int scroll_delay_counter;   // 独立的延迟计数器
     char text_content[512];     // 当前滚动的文本内容，用于检测变化
 } ScrollInstance;
-
+static int next_eviction_index = 0; // 为轮换驱逐策略新增的静态索引
 static ScrollInstance scroll_instances[MAX_CONCURRENT_SCROLLERS] = {0}; // 初始化所有实例
 int PLAT_resetScrollText(TTF_Font* font, const char* in_name,int max_width) {
 	int text_width, text_height;
@@ -1198,7 +1199,7 @@ void PLAT_scrollTextTexture(
     int w, int h,      // Clipping width and height
     SDL_Color color,
     float transparency,
-	int draw_background
+    int draw_background
 ) {
     // --- 速度控制逻辑 ---
     int scroll_increment = 2; // 默认滚动速度 (慢)
@@ -1207,31 +1208,49 @@ void PLAT_scrollTextTexture(
     }
     int actual_background_mode = draw_background & 0x0F; // 屏蔽掉标志位，获取实际的背景模式
 
-    // --- 状态管理 ---
+    // --- 状态管理 (已修复) ---
     ScrollInstance* instance = NULL;
     int first_inactive = -1;
 
+    // 1. 寻找现有匹配的实例
     for (int i = 0; i < MAX_CONCURRENT_SCROLLERS; i++) {
-        if (scroll_instances[i].active) {
-            if (scroll_instances[i].x == x && scroll_instances[i].y == y) {
-                instance = &scroll_instances[i];
-                break;
-            }
-        } else if (first_inactive == -1) {
+        if (scroll_instances[i].active && scroll_instances[i].x == x && scroll_instances[i].y == y) {
+            instance = &scroll_instances[i];
+            break;
+        }
+        if (!scroll_instances[i].active && first_inactive == -1) {
             first_inactive = i;
         }
     }
 
-    if (!instance && first_inactive != -1) {
-        instance = &scroll_instances[first_inactive];
+    // 2. 如果没有匹配项，则分配一个新实例 (修复逻辑的核心)
+    if (!instance) {
+        if (first_inactive != -1) {
+            // 使用找到的第一个空闲槽
+            instance = &scroll_instances[first_inactive];
+        } else {
+            // **修复点**: 池已满，执行轮换驱逐策略，而不是放弃
+            instance = &scroll_instances[next_eviction_index];
+            next_eviction_index = (next_eviction_index + 1) % MAX_CONCURRENT_SCROLLERS;
+        }
+
+        // 为新分配或回收的实例进行初始化
         instance->x = x;
         instance->y = y;
         instance->active = 1;
-        strncpy(instance->text_content, "", sizeof(instance->text_content));
+        instance->text_offset = 0;
+        instance->scroll_delay_counter = 0;
+        // 必须清空旧文本内容，以触发后续的文本更新逻辑
+        instance->text_content[0] = '\0';
     }
 
-    if (!instance) return;
+    // 如果到这里 instance 仍然是 NULL，说明逻辑有严重错误，但现在不应该发生
+    if (!instance) {
+         // 此路径现在理论上不可达
+        return;
+    }
 
+    // 检查文本内容是否已更改，如果更改则重置滚动状态
     if (strncmp(instance->text_content, in_name, sizeof(instance->text_content)) != 0) {
         strncpy(instance->text_content, in_name, sizeof(instance->text_content) - 1);
         instance->text_content[sizeof(instance->text_content) - 1] = '\0';
@@ -1247,7 +1266,7 @@ void PLAT_scrollTextTexture(
     color.a = (Uint8)(transparency * 255);
 
     SDL_Surface* singleSur = TTF_RenderUTF8_Blended(font, in_name, color);
-    if (!singleSur) return;
+    if (!singleSur) return; // 渲染失败，正常退出
 
     int single_width = singleSur->w;
     int single_height = singleSur->h;
@@ -1259,7 +1278,7 @@ void PLAT_scrollTextTexture(
         case 0: SDL_FillRect(text_surface, NULL, SDL_MapRGBA(text_surface->format, 0, 0, 0, 0)); break;
         case 1: SDL_FillRect(text_surface, NULL, THEME_COLOR1); break;
         case 2: SDL_FillRect(text_surface, NULL, THEME_COLOR2); break;
-		case 3: SDL_FillRect(text_surface, NULL, THEME_COLOR7); break;
+        case 3: SDL_FillRect(text_surface, NULL, THEME_COLOR7); break;
     }
     SDL_BlitSurface(singleSur, NULL, text_surface, NULL);
     SDL_Rect second = { single_width + padding, 0, single_width, single_height };
@@ -1282,7 +1301,7 @@ void PLAT_scrollTextTexture(
         SDL_RenderFillRect(vid.renderer, &clear_rect);
         SDL_SetRenderDrawBlendMode(vid.renderer, SDL_BLENDMODE_BLEND);
     }
-    
+
     SDL_Rect src_rect = { instance->text_offset, 0, w, single_height };
     SDL_Rect dst_rect = { x, y, w, single_height };
     SDL_RenderCopy(vid.renderer, full_text_texture, &src_rect, &dst_rect);
