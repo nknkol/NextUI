@@ -110,9 +110,6 @@ static SDL_Color bottom_scroll_color;
 static int bottom_scroll_x = 0;
 static int bottom_scroll_y = 0;
 
-// //菜单全局变量
-// static struct { ... } menu;
-// static MenuList options_menu;
 // 将这些定义提前，确保编译器先认识它们
 typedef struct MenuList MenuList;
 typedef struct MenuItem MenuItem;
@@ -1062,15 +1059,14 @@ typedef struct OptionList {
 	Option** enabled_options;
 
 	OptionCategory *categories;
-	// OptionList_callback_t on_set;
 } OptionList;
 
-static char* onoff_labels[] = {
+static char* onoff_values[] = {
 	"Off",
 	"On",
 	NULL
 };
-static char* scaling_labels[] = {
+static char* scaling_values[] = {
 	"Native",
 	"Aspect",
 	"Aspect Screen",
@@ -1078,14 +1074,14 @@ static char* scaling_labels[] = {
 	"Cropped",
 	NULL
 };
-static char* resample_labels[] = {
+static char* resample_values[] = {
 	"Low",
 	"Medium",
 	"High",
 	"Max",
 	NULL
 };
-static char* ambient_labels[] = {
+static char* ambient_values[] = {
 	"Off",
 	"All",
 	"Top",
@@ -1095,13 +1091,13 @@ static char* ambient_labels[] = {
 	NULL
 };
 
-static char* effect_labels[] = {
+static char* effect_values[] = {
 	"None",
 	"Line",
 	"Grid",
 	NULL
 };
-static char* overlay_labels[] = {
+static char* overlay_values[] = {
 	"None",
 	NULL
 };
@@ -1111,24 +1107,24 @@ static char* overlay_labels[] = {
 // 	"Soft",
 // 	NULL
 // };
-static char* sharpness_labels[] = {
+static char* sharpness_values[] = {
 	"NEAREST",
 	"LINEAR",
 	NULL
 };
-static char* tearing_labels[] = {
+static char* tearing_values[] = {
 	"Off",
 	"Lenient",
 	"Strict",
 	NULL
 };
-static char* sync_ref_labels[] = {
+static char* sync_ref_values[] = {
 	"Auto",
 	"Screen",
 	"Native",
 	NULL
 };
-static char* max_ff_labels[] = {
+static char* max_ff_values[] = {
 	"None",
 	"2x",
 	"3x",
@@ -1139,7 +1135,7 @@ static char* max_ff_labels[] = {
 	"8x",
 	NULL,
 };
-static char* offset_labels[] = {
+static char* offset_values[] = {
 	"-64",
 	"-63",
 	"-62",
@@ -1271,6 +1267,18 @@ static char* offset_labels[] = {
 	"64",
 	NULL,
 };
+static char* onoff_labels[3];
+static char* scaling_labels[6];
+static char* resample_labels[5];
+static char* ambient_labels[7];
+static char* effect_labels[4];
+static char* overlay_labels[2]; // 初始大小，后面会 realloc
+static char* sharpness_labels[3];
+static char* tearing_labels[4];
+static char* sync_ref_labels[4];
+static char* overclock_labels[5];
+
+
 static char* nrofshaders_labels[] = {
 	"off",
 	"1",
@@ -1481,7 +1489,7 @@ static char* button_labels[] = {
 	"MENU+R3",
 	NULL,
 };
-static char* overclock_labels[] = {
+static char* overclock_values[] = {
 	"Powersave",
 	"Normal",
 	"Performance",
@@ -1509,10 +1517,10 @@ enum {
 
 static inline char* getScreenScalingDesc(void) {
 	if (GFX_supportsOverscan()) {
-		return "Native uses integer scaling. Aspect uses core nreported aspect ratio.\nAspect screen uses screen aspect ratio\n Fullscreen has non-square\npixels. Cropped is integer scaled then cropped.";
+		return (char*)L("fe_scaling_desc_overscan");
 	}
 	else {
-		return "Native uses integer scaling.\nAspect uses core reported aspect ratio.\nAspect screen uses screen aspect ratio\nFullscreen has non-square pixels.";
+		return (char*)L("fe_scaling_desc_no_overscan");
 	}
 }
 static inline int getScreenScalingCount(void) {
@@ -1540,143 +1548,143 @@ static struct Config {
 		.options = (Option[]){
 			[FE_OPT_SCALING] = {
 				.key	= "minarch_screen_scaling", 
-				.name	= "Screen Scaling",
+				// .name	= "Screen Scaling",
 				.desc	= NULL, // will call getScreenScalingDesc()
 				.default_value = 1,
 				.value = 1,
 				.count = 3, // will call getScreenScalingCount()
-				.values = scaling_labels,
+				.values = scaling_values,
 				.labels = scaling_labels,
 			},
 			[FE_OPT_RESAMPLING] = {
 				.key	= "minarch__resampling_quality", 
-				.name	= "Audio Resampling Quality",
-				.desc	= "Resampling quality higher takes more CPU", // will call getScreenScalingDesc()
+				// .name	= "Audio Resampling Quality",
+				// .desc	= "Resampling quality higher takes more CPU", // will call getScreenScalingDesc()
 				.default_value = 2,
 				.value = 2,
 				.count = 4,
-				.values = resample_labels,
+				.values = resample_values,
 				.labels = resample_labels,
 			},
 			[FE_OPT_AMBIENT] = {
 				.key	= "minarch_ambient", 
-				.name	= "Ambient Mode",
-				.desc	= "Makes your leds follow on screen colors", // will call getScreenScalingDesc()
+				// .name	= "Ambient Mode",
+				// .desc	= "Makes your leds follow on screen colors", // will call getScreenScalingDesc()
 				.default_value = 0,
 				.value = 0,
 				.count = 6,
-				.values = ambient_labels,
+				.values = ambient_values,
 				.labels = ambient_labels,
 			},
 			[FE_OPT_EFFECT] = {
 				.key	= "minarch_screen_effect",
-				.name	= "Screen Effect",
-				.desc	= "Grid simulates an LCD grid.\nLine simulates CRT scanlines.\nEffects usually look best at native scaling.",
+				// .name	= "Screen Effect",
+				// .desc	= "Grid simulates an LCD grid. Line simulates CRT scanlines. Effects usually look best at native scaling.",
 				.default_value = 0,
 				.value = 0,
 				.count = 3,
-				.values = effect_labels,
+				.values = effect_values,
 				.labels = effect_labels,
 			},
 			[FE_OPT_OVERLAY] = {
 				.key	= "minarch_overlay",
-				.name	= "Overlay",
-				.desc	= "Choose a custom overlay png from the Overlays folder",
+				// .name	= "Overlay",
+				// .desc	= "Choose a custom overlay png from the Overlays folder",
 				.default_value = 0,
 				.value = 0,
 				.count = 1,
-				.values = overlay_labels,
+				.values = overlay_values,
 				.labels = overlay_labels,
 			},
 			[FE_OPT_SCREENX] = {
 				.key	= "minarch_screen_offsetx",
-				.name	= "Offset screen X",
-				.desc	= "Offset X pixels",
+				// .name	= "Offset screen X",
+				// .desc	= "Offset X pixels",
 				.default_value = 64,
 				.value = 64,
 				.count = 129,
-				.values = offset_labels,
-				.labels = offset_labels,
+				.values = offset_values,
+				.labels = offset_values,
 			},
 			[FE_OPT_SCREENY] = {
 				.key	= "minarch_screen_offsety",
-				.name	= "Offset screen Y",
-				.desc	= "Offset Y pixels",
+				// .name	= "Offset screen Y",
+				// .desc	= "Offset Y pixels",
 				.default_value = 64,
 				.value = 64,
 				.count = 129,
-				.values = offset_labels,
-				.labels = offset_labels,
+				.values = offset_values,
+				.labels = offset_values,
 			},
 			[FE_OPT_SHARPNESS] = {
 				// 	.key	= "minarch_screen_sharpness",
 				.key	= "minarch_scale_filter",
-				.name	= "Screen Sharpness",
-				.desc	= "LINEAR smooths lines, but works better when final image is at higher resolution, so either core that outputs higher resolution or upscaling with shaders",
+				// .name	= "Screen Sharpness",
+				// .desc	= "LINEAR smooths lines, but works better when final image is at higher resolution, so either core that outputs higher resolution or upscaling with shaders",
 				.default_value = 1,
 				.value = 1,
 				.count = 3,
-				.values = sharpness_labels,
+				.values = sharpness_values,
 				.labels = sharpness_labels,
 			},
 			[FE_OPT_TEARING] = {
 				.key	= "minarch_prevent_tearing",
-				.name	= "VSync",
-				.desc	= "Wait for vsync before drawing the next frame.\nLenient only waits when within frame budget.\nStrict always waits.",
+				// .name	= "VSync",
+				// .desc	= "Wait for vsync before drawing the next frame.\nLenient only waits when within frame budget.\nStrict always waits.",
 				.default_value = VSYNC_LENIENT,
 				.value = VSYNC_LENIENT,
 				.count = 3,
-				.values = tearing_labels,
+				.values = tearing_values,
 				.labels = tearing_labels,
 			},
 			[FE_OPT_SYNC_REFERENCE] = {
 				.key	= "minarch_sync_reference",
-				.name	= "Core Sync",
-				.desc	= "Choose what should be used as a\nreference for the frame rate.\n\"Native\" uses the emulator frame rate,\n\"Screen\" uses the frame rate of the screen.",
+				// .name	= "Core Sync",
+				// .desc	= "Choose what should be used as a reference for the frame rate. \"Native\" uses the emulator frame rate, \"Screen\" uses the frame rate of the screen.",
 				.default_value = SYNC_SRC_AUTO,
 				.value = SYNC_SRC_AUTO,
 				.count = 3,
-				.values = sync_ref_labels,
+				.values = sync_ref_values,
 				.labels = sync_ref_labels,
 			},
 			[FE_OPT_OVERCLOCK] = {
 				.key	= "minarch_cpu_speed",
-				.name	= "CPU Speed",
-				.desc	= "Over- or underclock the CPU to prioritize\npure performance or power savings.",
+				// .name	= "CPU Speed",
+				// .desc	= "Over- or underclock the CPU to prioritize\npure performance or power savings.",
 				.default_value = 3,
 				.value = 3,
 				.count = 4,
-				.values = overclock_labels,
+				.values = overclock_values,
 				.labels = overclock_labels,
 			},
 			[FE_OPT_DEBUG] = {
 				.key	= "minarch_debug_hud",
-				.name	= "Debug HUD",
-				.desc	= "Show frames per second, cpu load,\nresolution, and scaler information.",
+				// .name	= "Debug HUD",
+				// .desc	= "Show frames per second, cpu load,\nresolution, and scaler information.",
 				.default_value = 0,
 				.value = 0,
 				.count = 2,
-				.values = onoff_labels,
+				.values = onoff_values,
 				.labels = onoff_labels,
 			},
 			[FE_OPT_MAXFF] = {
 				.key	= "minarch_max_ff_speed",
-				.name	= "Max FF Speed",
-				.desc	= "Fast forward will not exceed the\nselected speed (but may be less\ndepending on game and emulator).",
+				// .name	= "Max FF Speed",
+				// .desc	= "Fast forward will not exceed the\nselected speed (but may be less\ndepending on game and emulator).",
 				.default_value = 3, // 4x
 				.value = 3, // 4x
 				.count = 8,
-				.values = max_ff_labels,
-				.labels = max_ff_labels,
+				.values = max_ff_values,
+				.labels = max_ff_values,
 			},
 			[FE_OPT_FF_AUDIO] = {
 				.key	= "minarch__ff_audio", 
-				.name	= "Fast forward audio",
-				.desc	= "Play or mute audio when fast forwarding.",
+				// .name	= "Fast forward audio",
+				// .desc	= "Play or mute audio when fast forwarding.",
 				.default_value = 0,
 				.value = 0,
 				.count = 2,
-				.values = onoff_labels,
+				.values = onoff_values,
 				.labels = onoff_labels,
 			},
 			[FE_OPT_COUNT] = {NULL}
@@ -5041,18 +5049,10 @@ static struct {
 	.total_discs = 0,
 	.save_exists = 0,
 	.preview_exists = 0,
-	
-	// .items = {
-	// 	[ITEM_CONT] = "Continue",
-	// 	[ITEM_SAVE] = "Save",
-	// 	[ITEM_LOAD] = "Load",
-	// 	[ITEM_OPTS] = "Options",
-	// 	[ITEM_QUIT] = "Quit",
-	// }
 };
 
 static MenuList options_menu;
-// 为主菜单创建专属的字符串初始化函数
+// 主菜单专属的字符串初始化函数
 static void MainMenu_InitStrings(void) {
     menu.items[ITEM_CONT] = (char*)L("menu_continue");
     menu.items[ITEM_SAVE]  = (char*)L("menu_save");
@@ -5064,8 +5064,7 @@ static void MainMenu_InitStrings(void) {
     }
     menu.items[ITEM_QUIT] = (char*)L("menu_quit");
 }
-
-// 为选项菜单创建一个专属的字符串初始化函数（修正版）
+// 选项菜单专属的字符串初始化函数
 static void OptionsMenu_InitStrings(void) {
     // 使用 malloc 在运行时分配内存，而不是用 static 在编译时初始化
     // +1 是为了最后的 {NULL} 结束标志
@@ -5093,11 +5092,136 @@ static void OptionsMenu_InitStrings(void) {
         options_menu.items[1].desc = (char*)core.version;
     }
 }
+// 前端选项菜单专属字符串初始化函数
+static void FrontendMenu_InitStrings(void) {
+    Option* options = config.frontend.options;
 
-// “主”初始化函数，统一管理所有字符串的加载
+    // FE_OPT_SCALING
+    options[FE_OPT_SCALING].name = (char*)L("fe_scaling_name");
+    // .desc 是动态生成的，所以这里不需要设置
+    
+    // FE_OPT_RESAMPLING
+    options[FE_OPT_RESAMPLING].name = (char*)L("fe_resampling_name");
+    options[FE_OPT_RESAMPLING].desc = (char*)L("fe_resampling_desc");
+
+    // FE_OPT_AMBIENT
+    options[FE_OPT_AMBIENT].name = (char*)L("fe_ambient_name");
+    options[FE_OPT_AMBIENT].desc = (char*)L("fe_ambient_desc");
+
+    // FE_OPT_EFFECT
+    options[FE_OPT_EFFECT].name = (char*)L("fe_effect_name");
+    options[FE_OPT_EFFECT].desc = (char*)L("fe_effect_desc");
+
+    // FE_OPT_OVERLAY
+    options[FE_OPT_OVERLAY].name = (char*)L("fe_overlay_name");
+    options[FE_OPT_OVERLAY].desc = (char*)L("fe_overlay_desc");
+
+    // FE_OPT_SCREENX
+    options[FE_OPT_SCREENX].name = (char*)L("fe_offset_x_name");
+    options[FE_OPT_SCREENX].desc = (char*)L("fe_offset_x_desc");
+
+    // FE_OPT_SCREENY
+    options[FE_OPT_SCREENY].name = (char*)L("fe_offset_y_name");
+    options[FE_OPT_SCREENY].desc = (char*)L("fe_offset_y_desc");
+
+    // FE_OPT_SHARPNESS
+    options[FE_OPT_SHARPNESS].name = (char*)L("fe_sharpness_name");
+    options[FE_OPT_SHARPNESS].desc = (char*)L("fe_sharpness_desc");
+
+    // FE_OPT_TEARING
+    options[FE_OPT_TEARING].name = (char*)L("fe_vsync_name");
+    options[FE_OPT_TEARING].desc = (char*)L("fe_vsync_desc");
+
+    // FE_OPT_SYNC_REFERENCE
+    options[FE_OPT_SYNC_REFERENCE].name = (char*)L("fe_sync_ref_name");
+    options[FE_OPT_SYNC_REFERENCE].desc = (char*)L("fe_sync_ref_desc");
+
+    // FE_OPT_OVERCLOCK
+    options[FE_OPT_OVERCLOCK].name = (char*)L("fe_overclock_name");
+    options[FE_OPT_OVERCLOCK].desc = (char*)L("fe_overclock_desc");
+
+    // FE_OPT_DEBUG
+    options[FE_OPT_DEBUG].name = (char*)L("fe_debug_hud_name");
+    options[FE_OPT_DEBUG].desc = (char*)L("fe_debug_hud_desc");
+    
+    // FE_OPT_MAXFF
+    options[FE_OPT_MAXFF].name = (char*)L("fe_max_ff_name");
+    options[FE_OPT_MAXFF].desc = (char*)L("fe_max_ff_desc");
+    
+    // FE_OPT_FF_AUDIO
+    options[FE_OPT_FF_AUDIO].name = (char*)L("fe_ff_audio_name");
+    options[FE_OPT_FF_AUDIO].desc = (char*)L("fe_ff_audio_desc");
+}
+static void GlobalLabels_InitStrings(void) {
+    // On/Off
+    onoff_labels[0] = (char*)L("val_off");
+    onoff_labels[1] = (char*)L("val_on");
+    onoff_labels[2] = NULL;
+
+    // Scaling
+    scaling_labels[0] = (char*)L("val_native");
+    scaling_labels[1] = (char*)L("val_aspect");
+    scaling_labels[2] = (char*)L("val_aspect_screen");
+    scaling_labels[3] = (char*)L("val_fullscreen");
+    scaling_labels[4] = (char*)L("val_cropped");
+    scaling_labels[5] = NULL;
+
+    // Resampling
+    resample_labels[0] = (char*)L("val_low");
+    resample_labels[1] = (char*)L("val_medium");
+    resample_labels[2] = (char*)L("val_high");
+    resample_labels[3] = (char*)L("val_max");
+    resample_labels[4] = NULL;
+    
+    // Ambient
+    ambient_labels[0] = (char*)L("val_off");
+    ambient_labels[1] = (char*)L("val_ambient_all");
+    ambient_labels[2] = (char*)L("val_ambient_top");
+    ambient_labels[3] = (char*)L("val_ambient_fn");
+    ambient_labels[4] = (char*)L("val_ambient_lr");
+    ambient_labels[5] = (char*)L("val_ambient_top_lr");
+    ambient_labels[6] = NULL;
+    
+    // Effect
+    effect_labels[0] = (char*)L("val_none");
+    effect_labels[1] = (char*)L("val_effect_line");
+    effect_labels[2] = (char*)L("val_effect_grid");
+    effect_labels[3] = NULL;
+
+    // Overlay (只初始化 "None")
+    overlay_labels[0] = (char*)L("val_none");
+    overlay_labels[1] = NULL;
+
+    // Sharpness
+    sharpness_labels[0] = (char*)L("val_sharp_nearest");
+    sharpness_labels[1] = (char*)L("val_sharp_linear");
+    sharpness_labels[2] = NULL;
+
+    // VSync/Tearing
+    tearing_labels[0] = (char*)L("val_off");
+    tearing_labels[1] = (char*)L("val_vsync_lenient");
+    tearing_labels[2] = (char*)L("val_vsync_strict");
+    tearing_labels[3] = NULL;
+
+    // Sync Reference
+    sync_ref_labels[0] = (char*)L("val_auto");
+    sync_ref_labels[1] = (char*)L("val_sync_ref_screen");
+    sync_ref_labels[2] = (char*)L("val_sync_ref_native");
+    sync_ref_labels[3] = NULL;
+
+    // Overclock
+    overclock_labels[0] = (char*)L("val_oc_powersave");
+    overclock_labels[1] = (char*)L("val_oc_normal");
+    overclock_labels[2] = (char*)L("val_oc_performance");
+    overclock_labels[3] = (char*)L("val_auto");
+    overclock_labels[4] = NULL;
+}
+// 统一初始化字符串的加载函数
 static void UI_InitAllStrings(void) {
     MainMenu_InitStrings();
     OptionsMenu_InitStrings();
+	FrontendMenu_InitStrings();
+	GlobalLabels_InitStrings();
 }
 void Menu_init(void) {
 	menu.overlay = SDL_CreateRGBSurfaceWithFormat(SDL_SWSURFACE,DEVICE_WIDTH,DEVICE_HEIGHT,32,SDL_PIXELFORMAT_RGBA8888);
