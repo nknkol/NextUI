@@ -1278,15 +1278,14 @@ static char* tearing_labels[4];
 static char* sync_ref_labels[4];
 static char* overclock_labels[5];
 
-
-static char* nrofshaders_labels[] = {
+static char* nrofshaders_values[] = {
 	"off",
 	"1",
 	"2",
 	"3",
 	NULL
 };
-static char* shupscale_labels[] = {
+static char* shupscale_values[] = {
 	"1",
 	"2",
 	"3",
@@ -1298,17 +1297,21 @@ static char* shupscale_labels[] = {
 	"screen",
 	NULL
 };
-static char* shfilter_labels[] = {
+static char* shfilter_values[] = {
 	"NEAREST",
 	"LINEAR",
 	NULL
 };
-static char* shscaletype_labels[] = {
+static char* shscaletype_values[] = {
 	"source",
 	"relative",
 	NULL
 };
-
+// 为着色器选项新增的标签数组
+static char* nrofshaders_labels[5];
+static char* shupscale_labels[10];
+static char* shfilter_labels[3];
+static char* shscaletype_labels[3];
 ///////////////////////////////
 
 enum {
@@ -1701,8 +1704,8 @@ static struct Config {
 		.options = (Option[]){
 			[SH_EXTRASETTINGS] = {
 				.key	= "minarch_shaders_settings", 
-				.name	= "Optional Shaders Settings",
-				.desc	= "If shaders have extra settings they will show up in this settings menu", // will call getScreenScalingDesc()
+				// .name	= "Optional Shaders Settings",
+				// .desc	= "If shaders have extra settings they will show up in this settings menu", // will call getScreenScalingDesc()
 				.default_value = 1,
 				.value = 1,
 				.count = 0,
@@ -1711,8 +1714,8 @@ static struct Config {
 			},
 			[SH_SHADERS_PRESET] = {
 				.key	= "minarch_shaders_preset", 
-				.name	= "Shader / Emulator Settings Preset",
-				.desc	= "Load a premade shaders/emulators config, to try out a preset but not permantly overwite your current settings, exit the game without saving settings!", // will call getScreenScalingDesc()
+				// .name	= "Shader / Emulator Settings Preset",
+				// .desc	= "Load a premade shaders/emulators config, to try out a preset but not permantly overwite your current settings, exit the game without saving settings!", // will call getScreenScalingDesc()
 				.default_value = 1,
 				.value = 1,
 				.count = 0,
@@ -1721,12 +1724,12 @@ static struct Config {
 			},
 			[SH_NROFSHADERS] = {
 				.key	= "minarch_nrofshaders", 
-				.name	= "Number of Shaders",
-				.desc	= "Number of shaders 1 to 3", // will call getScreenScalingDesc()
+				// .name	= "Number of Shaders",
+				// .desc	= "Number of shaders 1 to 3", // will call getScreenScalingDesc()
 				.default_value = 0,
 				.value = 0,
 				.count = 4,
-				.values = nrofshaders_labels,
+				.values = nrofshaders_values,
 				.labels = nrofshaders_labels,
 			},
 			
@@ -1742,48 +1745,48 @@ static struct Config {
 			},
 			[SH_SHADER1_FILTER] = {
 				.key	= "minarch_shader1_filter", 
-				.name	= "Shader 1 Filter",
-				.desc	= "Method of upscaling, NEAREST or LINEAR", // will call getScreenScalingDesc()
+				// .name	= "Shader 1 Filter",
+				// .desc	= "Method of upscaling, NEAREST or LINEAR", // will call getScreenScalingDesc()
 				.default_value = 1,
 				.value = 1,
 				.count = 2,
-				.values = shfilter_labels,
+				.values = shfilter_values,
 				.labels = shfilter_labels,
 			},
 			[SH_SRCTYPE1] = {
 				.key	= "minarch_shader1_srctype", 
-				.name	= "Shader 1 Source type",
-				.desc	= "This will choose resolution source to scale from", // will call getScreenScalingDesc()
+				// .name	= "Shader 1 Source type",
+				// .desc	= "This will choose resolution source to scale from", // will call getScreenScalingDesc()
 				.default_value = 0,
 				.value = 0,
 				.count = 2,
-				.values = shscaletype_labels,
+				.values = shscaletype_values,
 				.labels = shscaletype_labels,
 			},
 			[SH_SCALETYPE1] = {
 				.key	= "minarch_shader1_scaletype", 
-				.name	= "Shader 1 Texture Type",
-				.desc	= "This will choose resolution source to scale from", // will call getScreenScalingDesc()
+				// .name	= "Shader 1 Texture Type",
+				// .desc	= "This will choose resolution source to scale from", // will call getScreenScalingDesc()
 				.default_value = 1,
 				.value = 1,
 				.count = 2,
-				.values = shscaletype_labels,
+				.values = shscaletype_values,
 				.labels = shscaletype_labels,
 			},
 			[SH_UPSCALE1] = {
 				.key	= "minarch_shader1_upscale", 
-				.name	= "Shader 1 Scale",
-				.desc	= "This will scale images x times, screen scales to screens resolution (can hit performance)", // will call getScreenScalingDesc()
+				// .name	= "Shader 1 Scale",
+				// .desc	= "This will scale images x times, screen scales to screens resolution (can hit performance)", // will call getScreenScalingDesc()
 				.default_value = 1,
 				.value = 1,
 				.count = 9,
-				.values = shupscale_labels,
+				.values = shupscale_values,
 				.labels = shupscale_labels,
 			},
 			[SH_SHADER2] = {
 				.key	= "minarch_shader2", 
-				.name	= "Shader 2",
-				.desc	= "Shader 2 program to run", // will call getScreenScalingDesc()
+				// .name	= "Shader 2",
+				// .desc	= "Shader 2 program to run", // will call getScreenScalingDesc()
 				.default_value = 0,
 				.value = 0,
 				.count = 0,
@@ -1793,48 +1796,48 @@ static struct Config {
 			},
 			[SH_SHADER2_FILTER] = {
 				.key	= "minarch_shader2_filter", 
-				.name	= "Shader 2 Filter",
-				.desc	= "Method of upscaling, NEAREST or LINEAR", // will call getScreenScalingDesc()
+				// .name	= "Shader 2 Filter",
+				// .desc	= "Method of upscaling, NEAREST or LINEAR", // will call getScreenScalingDesc()
 				.default_value = 0,
 				.value = 0,
 				.count = 2,
-				.values = shfilter_labels,
+				.values = shfilter_values,
 				.labels = shfilter_labels,
 			},
 			[SH_SRCTYPE2] = {
 				.key	= "minarch_shader2_srctype", 
-				.name	= "Shader 2 Source type",
-				.desc	= "This will choose resolution source to scale from", // will call getScreenScalingDesc()
+				// .name	= "Shader 2 Source type",
+				// .desc	= "This will choose resolution source to scale from", // will call getScreenScalingDesc()
 				.default_value = 0,
 				.value = 0,
 				.count = 2,
-				.values = shscaletype_labels,
+				.values = shscaletype_values,
 				.labels = shscaletype_labels,
 			},
 			[SH_SCALETYPE2] = {
 				.key	= "minarch_shader2_scaletype", 
-				.name	= "Shader 2 Texture Type",
-				.desc	= "This will choose resolution source to scale from", // will call getScreenScalingDesc()
+				// .name	= "Shader 2 Texture Type",
+				// .desc	= "This will choose resolution source to scale from", // will call getScreenScalingDesc()
 				.default_value = 1,
 				.value = 1,
 				.count = 2,
-				.values = shscaletype_labels,
+				.values = shscaletype_values,
 				.labels = shscaletype_labels,
 			},
 			[SH_UPSCALE2] = {
 				.key	= "minarch_shader2_upscale", 
-				.name	= "Shader 2 Scale",
-				.desc	= "This will scale images x times, screen scales to screens resolution (can hit performance)", // will call getScreenScalingDesc()
+				// .name	= "Shader 2 Scale",
+				// .desc	= "This will scale images x times, screen scales to screens resolution (can hit performance)", // will call getScreenScalingDesc()
 				.default_value = 0,
 				.value = 0,
 				.count = 9,
-				.values = shupscale_labels,
+				.values = shupscale_values,
 				.labels = shupscale_labels,
 			},
 			[SH_SHADER3] = {
 				.key	= "minarch_shader3", 
-				.name	= "Shader 3",
-				.desc	= "Shader 3 program to run", // will call getScreenScalingDesc()
+				// .name	= "Shader 3",
+				// .desc	= "Shader 3 program to run", // will call getScreenScalingDesc()
 				.default_value = 2,
 				.value = 2,
 				.count = 0,
@@ -1844,42 +1847,42 @@ static struct Config {
 			},
 			[SH_SHADER3_FILTER] = {
 				.key	= "minarch_shader3_filter", 
-				.name	= "Shader 3 Filter",
-				.desc	= "Method of upscaling, NEAREST or LINEAR", // will call getScreenScalingDesc()
+				// .name	= "Shader 3 Filter",
+				// .desc	= "Method of upscaling, NEAREST or LINEAR", // will call getScreenScalingDesc()
 				.default_value = 0,
 				.value = 0,
 				.count = 2,
-				.values = shfilter_labels,
+				.values = shfilter_values,
 				.labels = shfilter_labels,
 			},
 			[SH_SRCTYPE3] = {
 				.key	= "minarch_shader3_srctype", 
-				.name	= "Shader 3 Source type",
-				.desc	= "This will choose resolution source to scale from", // will call getScreenScalingDesc()
+				// .name	= "Shader 3 Source type",
+				// .desc	= "This will choose resolution source to scale from", // will call getScreenScalingDesc()
 				.default_value = 0,
 				.value = 0,
 				.count = 2,
-				.values = shscaletype_labels,
+				.values = shscaletype_values,
 				.labels = shscaletype_labels,
 			},
 			[SH_SCALETYPE3] = {
 				.key	= "minarch_shader3_scaletype", 
-				.name	= "Shader 3 Texture Type",
-				.desc	= "This will choose resolution source to scale from", // will call getScreenScalingDesc()
+				// .name	= "Shader 3 Texture Type",
+				// .desc	= "This will choose resolution source to scale from", // will call getScreenScalingDesc()
 				.default_value = 1,
 				.value = 1,
 				.count = 2,
-				.values = shscaletype_labels,
+				.values = shscaletype_values,
 				.labels = shscaletype_labels,
 			},
 			[SH_UPSCALE3] = {
 				.key	= "minarch_shader3_upscale", 
-				.name	= "Shader 3 Scale",
-				.desc	= "This will scale images x times, screen scales to screens resolution (can hit performance)", // will call getScreenScalingDesc()
+				// .name	= "Shader 3 Scale",
+				// .desc	= "This will scale images x times, screen scales to screens resolution (can hit performance)", // will call getScreenScalingDesc()
 				.default_value = 0,
 				.value = 0,
 				.count = 9,
-				.values = shupscale_labels,
+				.values = shupscale_values,
 				.labels = shupscale_labels,
 			},
 			{NULL}
@@ -5216,12 +5219,83 @@ static void GlobalLabels_InitStrings(void) {
     overclock_labels[3] = (char*)L("val_auto");
     overclock_labels[4] = NULL;
 }
+static void ShadersMenu_InitStrings(void) {
+    Option* options = config.shaders.options;
+    
+    // 翻译选项名称 (Name) 和描述 (Desc)
+    options[SH_EXTRASETTINGS].name = (char*)L("sh_extrasettings_name");
+    options[SH_EXTRASETTINGS].desc = (char*)L("sh_extrasettings_desc");
+    options[SH_SHADERS_PRESET].name = (char*)L("sh_preset_name");
+    options[SH_SHADERS_PRESET].desc = (char*)L("sh_preset_desc");
+    options[SH_NROFSHADERS].name = (char*)L("sh_nrofshaders_name");
+    options[SH_NROFSHADERS].desc = (char*)L("sh_nrofshaders_desc");
+
+    options[SH_SHADER1].name = (char*)L("sh_shader1_name");
+    options[SH_SHADER1].desc = (char*)L("sh_shader_desc");
+    options[SH_SHADER1_FILTER].name = (char*)L("sh_shader1_filter_name");
+    options[SH_SHADER1_FILTER].desc = (char*)L("sh_filter_desc");
+    options[SH_SRCTYPE1].name = (char*)L("sh_shader1_srctype_name");
+    options[SH_SRCTYPE1].desc = (char*)L("sh_srctype_desc");
+    options[SH_SCALETYPE1].name = (char*)L("sh_shader1_scaletype_name");
+    options[SH_SCALETYPE1].desc = (char*)L("sh_scaletype_desc");
+    options[SH_UPSCALE1].name = (char*)L("sh_shader1_upscale_name");
+    options[SH_UPSCALE1].desc = (char*)L("sh_upscale_desc");
+    
+    options[SH_SHADER2].name = (char*)L("sh_shader2_name");
+    options[SH_SHADER2].desc = (char*)L("sh_shader_desc");
+    options[SH_SHADER2_FILTER].name = (char*)L("sh_shader2_filter_name");
+    options[SH_SHADER2_FILTER].desc = (char*)L("sh_filter_desc");
+    options[SH_SRCTYPE2].name = (char*)L("sh_shader2_srctype_name");
+    options[SH_SRCTYPE2].desc = (char*)L("sh_srctype_desc");
+    options[SH_SCALETYPE2].name = (char*)L("sh_shader2_scaletype_name");
+    options[SH_SCALETYPE2].desc = (char*)L("sh_scaletype_desc");
+    options[SH_UPSCALE2].name = (char*)L("sh_shader2_upscale_name");
+    options[SH_UPSCALE2].desc = (char*)L("sh_upscale_desc");
+
+    options[SH_SHADER3].name = (char*)L("sh_shader3_name");
+    options[SH_SHADER3].desc = (char*)L("sh_shader_desc");
+    options[SH_SHADER3_FILTER].name = (char*)L("sh_shader3_filter_name");
+    options[SH_SHADER3_FILTER].desc = (char*)L("sh_filter_desc");
+    options[SH_SRCTYPE3].name = (char*)L("sh_shader3_srctype_name");
+    options[SH_SRCTYPE3].desc = (char*)L("sh_srctype_desc");
+    options[SH_SCALETYPE3].name = (char*)L("sh_shader3_scaletype_name");
+    options[SH_SCALETYPE3].desc = (char*)L("sh_scaletype_desc");
+    options[SH_UPSCALE3].name = (char*)L("sh_shader3_upscale_name");
+    options[SH_UPSCALE3].desc = (char*)L("sh_upscale_desc");
+    
+    // 翻译可选值的标签 (Labels)
+    nrofshaders_labels[0] = (char*)L("val_off");
+    nrofshaders_labels[1] = "1";
+    nrofshaders_labels[2] = "2";
+    nrofshaders_labels[3] = "3";
+    nrofshaders_labels[4] = NULL;
+    
+    shupscale_labels[0] = "1";
+    shupscale_labels[1] = "2";
+    shupscale_labels[2] = "3";
+    shupscale_labels[3] = "4";
+    shupscale_labels[4] = "5";
+    shupscale_labels[5] = "6";
+    shupscale_labels[6] = "7";
+    shupscale_labels[7] = "8";
+    shupscale_labels[8] = (char*)L("val_sh_upscale_screen");
+    shupscale_labels[9] = NULL;
+
+    shfilter_labels[0] = (char*)L("val_sharp_nearest");
+    shfilter_labels[1] = (char*)L("val_sharp_linear");
+    shfilter_labels[2] = NULL;
+    
+    shscaletype_labels[0] = (char*)L("val_sh_scaletype_source");
+    shscaletype_labels[1] = (char*)L("val_sh_scaletype_relative");
+    shscaletype_labels[2] = NULL;
+}
 // 统一初始化字符串的加载函数
 static void UI_InitAllStrings(void) {
     MainMenu_InitStrings();
     OptionsMenu_InitStrings();
 	FrontendMenu_InitStrings();
 	GlobalLabels_InitStrings();
+	ShadersMenu_InitStrings();
 }
 void Menu_init(void) {
 	menu.overlay = SDL_CreateRGBSurfaceWithFormat(SDL_SWSURFACE,DEVICE_WIDTH,DEVICE_HEIGHT,32,SDL_PIXELFORMAT_RGBA8888);
@@ -5939,7 +6013,7 @@ static int OptionShaders_openMenu(MenuList* list, int i) {
 			item->values = filelist;
 			config.shaders.options[i].values = filelist;
 		} else {
-			item->values = config.shaders.options[i].values;
+			item->values = configitem->labels;
 		}
 	}
 	
@@ -5952,22 +6026,6 @@ static int OptionShaders_openMenu(MenuList* list, int i) {
 
 	return MENU_CALLBACK_NOP;
 }
-
-// static MenuList options_menu = {
-// 	.type = MENU_LIST,
-// 	.items = (MenuItem[]) {
-// 		{"Frontend", "NextUI (" BUILD_DATE " " BUILD_HASH ")",.on_confirm=OptionFrontend_openMenu},
-// 		{"Emulator",.on_confirm=OptionEmulator_openMenu},
-// 		{"Shaders",.on_confirm=OptionShaders_openMenu},
-// 		// TODO: this should be hidden with no cheats available
-// 		{"Cheats",.on_confirm=OptionCheats_openMenu},
-// 		{"Controls",.on_confirm=OptionControls_openMenu},
-// 		{"Shortcuts",.on_confirm=OptionShortcuts_openMenu}, 
-// 		{"Save Changes",.on_confirm=OptionSaveChanges_openMenu},
-// 		{NULL},
-// 		{NULL},
-// 	}
-// };
 
 static void OptionSaveChanges_updateDesc(void) {
 	options_menu.items[4].desc = getSaveDesc();
