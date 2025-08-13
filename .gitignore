@@ -32,7 +32,7 @@ Roms
 **/other/rsce-go
 bl_enable
 bl_disable
-workspace/tg5040/wifimanager/daemon/wifi_daemon
+**/wifimanager/daemon/wifi_daemon
 
 **/tmp
 

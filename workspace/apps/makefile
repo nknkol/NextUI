@@ -13,11 +13,9 @@ endif
 .PHONY: all 
 
 all:
-	cd ./lib && make
-	cd ./apps && make
-	cd ./system && make
-	cd ./cores && make
-	cd ./tools && make
+	cd ./minarch && make
+	cd ./nextui && make
 
 clean:
-	cd ./lib && make clean
+	cd ./minarch && make clean
+	cd ./nextui && make clean
