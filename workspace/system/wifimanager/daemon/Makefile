@@ -10,14 +10,14 @@ CC = $(CROSS_COMPILE)gcc
 #INCLUDES += -I$(CONFIG_PREFIX)/usr/include \
 #			-I ../core/include \
 #			-I .
-TARGET=libwifid
+# TARGET=wifi_daemon
 
 .PHONY: build
 .PHONY: clean
 
 INCLUDES += -I$(PREFIX)/include
 
-install: $(TARGET)
+install: wifi_daemon
 	-mkdir -p $(PREFIX)/bin
 # 	-mkdir -p $(PREFIX)/lib
 # 	-mkdir -p $(PREFIX)/include
@@ -34,6 +34,6 @@ wifi_daemon: wifi_daemon.c wifid_ctrl.c
 # #	cp $@ $(PREFIX)/lib
 
 ####################################################################
-build: $(TARGET) install
+build: wifi_daemon install
 clean:
 	rm -rf  wifi_daemon

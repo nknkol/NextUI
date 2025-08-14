@@ -4,6 +4,7 @@ endif
 ifeq (,$(PREFIX))
 $(error missing PREFIX for this toolchain)
 endif
+.PHONY: daemon
 
 TARGET_ARCH = "aarch64"
 TARGET_CC = $(CROSS_COMPILE)gcc
@@ -29,6 +30,15 @@ TARGET_CFLAGS = $(if $(CONFIG_USE_GLIBC),-pthread)
 # 		all
 
 daemon: 
+# 	cd $(PKG_BUILD_DIR)/daemon && make \
+# 		ARCH="$(TARGET_ARCH)" \
+# 		AR="$(TARGET_AR)" \
+# 		CC="$(TARGET_CC)" \
+# 		CXX="$(TARGET_CXX)" \
+# 		CFLAGS="$(TARGET_CFLAGS)" \
+# 		LDFLAGS="$(TARGET_LDFLAGS)" \
+# 		PREFIX="$(PKG_INSTALL_DIR)" \
+# 		all
 	make -C $(PKG_BUILD_DIR)/daemon/ \
 		ARCH="$(TARGET_ARCH)" \
 		AR="$(TARGET_AR)" \
@@ -38,6 +48,6 @@ daemon:
 		LDFLAGS="$(TARGET_LDFLAGS)" \
 		CONFIG_PREFIX="$(PKG_INSTALL_DIR)" \
 		CONFIG_IPV6="$(CONFIG_IPV6)" \
-		all
+		build
 
 all: daemon
