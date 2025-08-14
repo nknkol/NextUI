@@ -36,8 +36,10 @@ bl_disable
 
 **/tmp
 
-workspace/hash.txt
-workspace/readmes
+**/hash.txt
 
 FAKESD
 .vscode
+workspace/other/readmes/BASE-in.txt
+workspace/other/readmes/EXTRAS-in.txt
+workspace/other/readmes/hash.txt
