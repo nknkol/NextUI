@@ -60,20 +60,20 @@ if [ -f "$UPDATE_PATH" ]; then
 	fi
 
 	# clean replacement for core paths
-	rm -rf $SYSTEM_PATH/$PLATFORM/bin
-	rm -rf $SYSTEM_PATH/$PLATFORM/lib
-	rm -rf $SYSTEM_PATH/$PLATFORM/paks/MinUI.pak
+	rm -rf $SYSTEM_PATH/bin
+	rm -rf $SYSTEM_PATH/lib
+	rm -rf $SYSTEM_PATH/paks/MinUI.pak
 
 	./unzip -o "$UPDATE_PATH" -d "$SDCARD_PATH" # &> /mnt/SDCARD/unzip.txt
 	rm -f "$UPDATE_PATH"
 
 	# the updated system finishes the install/update
-	if [ -f $SYSTEM_PATH/$PLATFORM/bin/install.sh ]; then
-		$SYSTEM_PATH/$PLATFORM/bin/install.sh # &> $SDCARD_PATH/log.txt
+	if [ -f $SYSTEM_PATH/bin/install.sh ]; then
+		$SYSTEM_PATH/bin/install.sh # &> $SDCARD_PATH/log.txt
 	fi
 fi
 
-LAUNCH_PATH="$SYSTEM_PATH/$PLATFORM/paks/MinUI.pak/launch.sh"
+LAUNCH_PATH="$SYSTEM_PATH/paks/MinUI.pak/launch.sh"
 if [ -f "$LAUNCH_PATH" ] ; then
 	"$LAUNCH_PATH"
 fi

@@ -56,86 +56,87 @@ build:
 # 	$(error CORE is not set)
 # endif
 # 	make build-core -f $(TOOLCHAIN_FILE) PLATFORM=$(PLATFORM) COMPILE_CORES=true CORE=$(CORE)
+lib:
+	# libwifid
+	cp ./workspace/lib/libwifid/libwifid.so ./build/SYSTEM/lib/
+	# minarch
+	cp ./workspace/apps/minarch/build/$(PLATFORM)/libsamplerate.* ./build/SYSTEM/lib/
+	cp ./workspace/apps/minarch/build/$(PLATFORM)/libzip.* ./build/SYSTEM/lib/
+	cp ./workspace/apps/minarch/build/$(PLATFORM)/libbz2.* ./build/SYSTEM/lib/
+	cp ./workspace/apps/minarch/build/$(PLATFORM)/liblzma.* ./build/SYSTEM/lib/
+	cp ./workspace/apps/minarch/build/$(PLATFORM)/libzstd.* ./build/SYSTEM/lib/
+	# libcommon
+	cp ./workspace/lib/libcommon/libcommon.so ./build/SYSTEM/lib/
+	# libmsettings
+	cp ./workspace/lib/libmsettings/libmsettings.so ./build/SYSTEM/lib
+	# libbatmondb
+	cp ./workspace/lib/libbatmondb/build/$(PLATFORM)/libbatmondb.so ./build/SYSTEM/lib/
+	# libgametimedb
+	cp ./workspace/lib/libgametimedb/build/$(PLATFORM)/libgametimedb.so ./build/SYSTEM/lib/
 
+apps:
+	cp ./workspace/apps/nextui/build/$(PLATFORM)/nextui.elf ./build/SYSTEM/bin/
+	cp ./workspace/apps/minarch/build/$(PLATFORM)/minarch.elf ./build/SYSTEM/bin/
 system:
-	cp ./workspace/system/show/show.elf ./build/SYSTEM/$(PLATFORM)/bin
+	# system tools
+	cp ./workspace/system/show/show.elf ./build/SYSTEM/bin
 	# installer
 	cp ./workspace/other/install/boot.sh ./build/BOOT/common/$(PLATFORM).sh
-	cp ./workspace/other/install/update.sh ./build/SYSTEM/$(PLATFORM)/bin/install.sh
+	cp ./workspace/other/install/update.sh ./build/SYSTEM/bin/install.sh
 	mkdir -p ./build/BOOT/common/$(PLATFORM)/
 	cp ./workspace/other/install/*.png ./build/BOOT/common/$(PLATFORM)/
 	cp -r ./workspace/other/install/brick ./build/BOOT/common/$(PLATFORM)/
 	cp ./workspace/system/show/show.elf ./build/BOOT/common/$(PLATFORM)/
 	cp ./workspace/other/unzip60/unzip ./build/BOOT/common/$(PLATFORM)/
-	# wifi
-	cp ./workspace/lib/libwifid/libwifid.so ./build/SYSTEM/$(PLATFORM)/lib/
-	cp ./workspace/system/wifimanager/daemon/wifi_daemon ./build/SYSTEM/$(PLATFORM)/bin/
-	# extras
-	cp ./workspace/other/NextCommander/output/NextCommander ./build/EXTRAS/Tools/$(PLATFORM)/Files.pak/
-	cp -r ./workspace/other/NextCommander/res ./build/EXTRAS/Tools/$(PLATFORM)/Files.pak/
-
-	# populate system
-	cp ./workspace/lib/libmsettings/libmsettings.so ./build/SYSTEM/$(PLATFORM)/lib
-	cp ./workspace/apps/nextui/build/$(PLATFORM)/nextui.elf ./build/SYSTEM/$(PLATFORM)/bin/
-	cp ./workspace/apps/minarch/build/$(PLATFORM)/minarch.elf ./build/SYSTEM/$(PLATFORM)/bin/
-	cp ./workspace/system/nextval/build/$(PLATFORM)/nextval.elf ./build/SYSTEM/$(PLATFORM)/bin/
-	cp ./workspace/tools/clock/build/$(PLATFORM)/clock.elf ./build/EXTRAS/Tools/$(PLATFORM)/Clock.pak/
-	cp ./workspace/tools/minput/build/$(PLATFORM)/minput.elf ./build/EXTRAS/Tools/$(PLATFORM)/Input.pak/
-
-	# battery tracking
-	cp ./workspace/lib/libbatmondb/build/$(PLATFORM)/libbatmondb.so ./build/SYSTEM/$(PLATFORM)/lib
-	cp ./workspace/system/batmon/build/$(PLATFORM)/batmon.elf ./build/SYSTEM/$(PLATFORM)/bin/
-	cp ./workspace/tools/battery/build/$(PLATFORM)/battery.elf ./build/EXTRAS/Tools/$(PLATFORM)/Battery.pak/
-
-	# game time tracking
-	cp ./workspace/lib/libgametimedb/build/$(PLATFORM)/libgametimedb.so ./build/SYSTEM/$(PLATFORM)/lib
-	cp ./workspace/system/gametimectl/build/$(PLATFORM)/gametimectl.elf ./build/SYSTEM/$(PLATFORM)/bin/
-	cp ./workspace/tools/gametime/build/$(PLATFORM)/gametime.elf ./build/EXTRAS/Tools/$(PLATFORM)/Game\ Tracker.pak/
-  
-	cp ./workspace/tools/settings/build/$(PLATFORM)/settings.elf ./build/EXTRAS/Tools/$(PLATFORM)/Settings.pak/
-	cp ./workspace/tools/ledcontrol/build/$(PLATFORM)/ledcontrol.elf ./build/EXTRAS/Tools/$(PLATFORM)/LedControl.pak/
-	cp ./workspace/tools/bootlogo/build/$(PLATFORM)/bootlogo.elf ./build/EXTRAS/Tools/$(PLATFORM)/Bootlogo.pak/
-
-	# lib dependencies
-	cp ./workspace/apps/minarch/build/$(PLATFORM)/libsamplerate.* ./build/SYSTEM/$(PLATFORM)/lib/
-	# This is a bandaid fix, needs to be cleaned up if/when we expand to other platforms.
-	cp ./workspace/apps/minarch/build/$(PLATFORM)/libzip.* ./build/SYSTEM/$(PLATFORM)/lib/
-	cp ./workspace/apps/minarch/build/$(PLATFORM)/libbz2.* ./build/SYSTEM/$(PLATFORM)/lib/
-	cp ./workspace/apps/minarch/build/$(PLATFORM)/liblzma.* ./build/SYSTEM/$(PLATFORM)/lib/
-	cp ./workspace/apps/minarch/build/$(PLATFORM)/libzstd.* ./build/SYSTEM/$(PLATFORM)/lib/
-
-
+	cp ./workspace/system/wifimanager/daemon/wifi_daemon ./build/SYSTEM/bin/
+	cp ./workspace/system/nextval/build/$(PLATFORM)/nextval.elf ./build/SYSTEM/bin/
+	cp ./workspace/system/gametimectl/build/$(PLATFORM)/gametimectl.elf ./build/SYSTEM/bin/
+	cp ./workspace/system/batmon/build/$(PLATFORM)/batmon.elf ./build/SYSTEM/bin/
 cores: # TODO: can't assume every platform will have the same stock cores (platform should be responsible for copy too)
 	# stock cores
-	cp ./workspace/cores/output/fceumm_libretro.so ./build/SYSTEM/$(PLATFORM)/cores
-	cp ./workspace/cores/output/gambatte_libretro.so ./build/SYSTEM/$(PLATFORM)/cores
-	cp ./workspace/cores/output/gpsp_libretro.so ./build/SYSTEM/$(PLATFORM)/cores
-	cp ./workspace/cores/output/picodrive_libretro.so ./build/SYSTEM/$(PLATFORM)/cores
-	cp ./workspace/cores/output/snes9x_libretro.so ./build/SYSTEM/$(PLATFORM)/cores
-	cp ./workspace/cores/output/pcsx_rearmed_libretro.so ./build/SYSTEM/$(PLATFORM)/cores
+	cp ./workspace/cores/output/fceumm_libretro.so ./build/SYSTEM/cores
+	cp ./workspace/cores/output/gambatte_libretro.so ./build/SYSTEM/cores
+	cp ./workspace/cores/output/gpsp_libretro.so ./build/SYSTEM/cores
+	cp ./workspace/cores/output/picodrive_libretro.so ./build/SYSTEM/cores
+	cp ./workspace/cores/output/snes9x_libretro.so ./build/SYSTEM/cores
+	cp ./workspace/cores/output/pcsx_rearmed_libretro.so ./build/SYSTEM/cores
 
 	# extras
-	cp ./workspace/cores/output/a5200_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/A5200.pak
-	cp ./workspace/cores/output/prosystem_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/A7800.pak
-	cp ./workspace/cores/output/stella2014_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/A2600.pak
-	cp ./workspace/cores/output/handy_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/LYNX.pak
-	cp ./workspace/cores/output/mgba_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/MGBA.pak
-	cp ./workspace/cores/output/mgba_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/SGB.pak
-	cp ./workspace/cores/output/mednafen_pce_fast_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/PCE.pak
-	cp ./workspace/cores/output/pokemini_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/PKM.pak
-	cp ./workspace/cores/output/race_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/NGP.pak
-	cp ./workspace/cores/output/race_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/NGPC.pak
-	cp ./workspace/cores/output/fbneo_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/FBN.pak
-	cp ./workspace/cores/output/cap32_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/CPC.pak
-	cp ./workspace/cores/output/puae2021_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/PUAE.pak
-	cp ./workspace/cores/output/prboom_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/PRBOOM.pak
-	cp ./workspace/cores/output/vice_x64_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/C64.pak
-	cp ./workspace/cores/output/vice_x128_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/C128.pak
-	cp ./workspace/cores/output/vice_xplus4_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/PLUS4.pak
-	cp ./workspace/cores/output/vice_xpet_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/PET.pak
-	cp ./workspace/cores/output/vice_xvic_libretro.so ./build/EXTRAS/Emus/$(PLATFORM)/VIC.pak
+	cp ./workspace/cores/output/a5200_libretro.so ./build/EXTRAS/Emus/A5200.pak
+	cp ./workspace/cores/output/prosystem_libretro.so ./build/EXTRAS/Emus/A7800.pak
+	cp ./workspace/cores/output/stella2014_libretro.so ./build/EXTRAS/Emus/A2600.pak
+	cp ./workspace/cores/output/handy_libretro.so ./build/EXTRAS/Emus/LYNX.pak
+	cp ./workspace/cores/output/mgba_libretro.so ./build/EXTRAS/Emus/MGBA.pak
+	cp ./workspace/cores/output/mgba_libretro.so ./build/EXTRAS/Emus/SGB.pak
+	cp ./workspace/cores/output/mednafen_pce_fast_libretro.so ./build/EXTRAS/Emus/PCE.pak
+	cp ./workspace/cores/output/pokemini_libretro.so ./build/EXTRAS/Emus/PKM.pak
+	cp ./workspace/cores/output/race_libretro.so ./build/EXTRAS/Emus/NGP.pak
+	cp ./workspace/cores/output/race_libretro.so ./build/EXTRAS/Emus/NGPC.pak
+	cp ./workspace/cores/output/fbneo_libretro.so ./build/EXTRAS/Emus/FBN.pak
+	cp ./workspace/cores/output/cap32_libretro.so ./build/EXTRAS/Emus/CPC.pak
+	cp ./workspace/cores/output/puae2021_libretro.so ./build/EXTRAS/Emus/PUAE.pak
+	cp ./workspace/cores/output/prboom_libretro.so ./build/EXTRAS/Emus/PRBOOM.pak
+	cp ./workspace/cores/output/vice_x64_libretro.so ./build/EXTRAS/Emus/C64.pak
+	cp ./workspace/cores/output/vice_x128_libretro.so ./build/EXTRAS/Emus/C128.pak
+	cp ./workspace/cores/output/vice_xplus4_libretro.so ./build/EXTRAS/Emus/PLUS4.pak
+	cp ./workspace/cores/output/vice_xpet_libretro.so ./build/EXTRAS/Emus/PET.pak
+	cp ./workspace/cores/output/vice_xvic_libretro.so ./build/EXTRAS/Emus/VIC.pak
+tools:
+	cp ./workspace/other/NextCommander/output/NextCommander ./build/EXTRAS/Tools/Files.pak/
+	cp -r ./workspace/other/NextCommander/res ./build/EXTRAS/Tools/Files.pak/
+	cp ./workspace/tools/clock/build/$(PLATFORM)/clock.elf ./build/EXTRAS/Tools/Clock.pak/
+	cp ./workspace/tools/minput/build/$(PLATFORM)/minput.elf ./build/EXTRAS/Tools/Input.pak/
+	# battery tracking
+	cp ./workspace/tools/battery/build/$(PLATFORM)/battery.elf ./build/EXTRAS/Tools/Battery.pak/
+	# game time tracking
+	cp ./workspace/tools/gametime/build/$(PLATFORM)/gametime.elf ./build/EXTRAS/Tools/Game\ Tracker.pak/
+	cp ./workspace/tools/settings/build/$(PLATFORM)/settings.elf ./build/EXTRAS/Tools/Settings.pak/
+	cp ./workspace/tools/ledcontrol/build/$(PLATFORM)/ledcontrol.elf ./build/EXTRAS/Tools/LedControl.pak/
+	cp ./workspace/tools/bootlogo/build/$(PLATFORM)/bootlogo.elf ./build/EXTRAS/Tools/Bootlogo.pak/
 
-common: build system cores
+cpfile:lib apps system cores tools
+
+common: build cpfile
 	
 clean:
 	rm -rf ./build
@@ -176,10 +177,6 @@ tidy:
 	rm -f releases/$(RELEASE_NAME)-all.zip
 	# ----------------------------------------------------
 	# copy update from merged platform to old pre-merge platform bin so old cards update properly
-# ifneq (,$(findstring rg35xxplus, $(PLATFORMS)))
-# 	mkdir -p ./build/SYSTEM/rg40xxcube/bin/
-# 	cp ./build/SYSTEM/rg35xxplus/bin/install.sh ./build/SYSTEM/rg40xxcube/bin/
-# endif
 
 package: tidy
 	# ----------------------------------------------------
@@ -203,7 +200,7 @@ package: tidy
 	mv ./build/PAYLOAD/MinUI.zip ./build/BASE
 	
 	# TODO: can I just add everything in BASE to zip?
-	# cd ./build/BASE && zip -r ../../releases/$(RELEASE_NAME)-base.zip Bios Roms Saves miyoo miyoo354 trimui rg35xx rg35xxplus gkdpixel miyoo355 magicx em_ui.sh MinUI.zip README.txt
+	# cd ./build/BASE && zip -r ../../releases/$(RELEASE_NAME)-base.zip Bios Roms Saves trimui em_ui.sh MinUI.zip README.txt
 	cd ./build/BASE && zip -r ../../releases/$(RELEASE_NAME)-base.zip Bios Roms Saves Shaders trimui em_ui.sh MinUI.zip README.txt
 	cd ./build/EXTRAS && zip -r ../../releases/$(RELEASE_NAME)-extras.zip Bios Emus Roms Saves Shaders Tools README.txt
 	echo "$(RELEASE_VERSION)" > ./build/latest.txt

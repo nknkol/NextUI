@@ -515,7 +515,8 @@ static Entry* entryFromPakName(char* pak_name)
 {
 	char pak_path[256];
 	// Check in Tools
-	sprintf(pak_path, "%s/Tools/%s/%s.pak", SDCARD_PATH, PLATFORM, pak_name);
+	//调整： sprintf(pak_path, "%s/Tools/%s/%s.pak", SDCARD_PATH, PLATFORM, pak_name);
+	sprintf(pak_path, "%s/Tools/%s.pak", SDCARD_PATH, pak_name);
 	if(exists(pak_path))
 		return Entry_newNamed(pak_path, ENTRY_PAK, pak_name);
 
@@ -525,7 +526,8 @@ static Entry* entryFromPakName(char* pak_name)
 		return Entry_newNamed(pak_path, ENTRY_PAK, pak_name);
 
 	// Check in platform Emus
-	sprintf(pak_path, "%s/Emus/%s/%s.pak", SDCARD_PATH, PLATFORM, pak_name);
+	// 调整：sprintf(pak_path, "%s/Emus/%s/%s.pak", SDCARD_PATH, PLATFORM, pak_name);
+	sprintf(pak_path, "%s/Emus/%s.pak", SDCARD_PATH, pak_name);
 	if(exists(pak_path)) 
 		return Entry_newNamed(pak_path, ENTRY_PAK, pak_name);
 
@@ -536,8 +538,8 @@ static int hasEmu(char* emu_name) {
 	char pak_path[256];
 	sprintf(pak_path, "%s/Emus/%s.pak/launch.sh", PAKS_PATH, emu_name);
 	if (exists(pak_path)) return 1;
-
-	sprintf(pak_path, "%s/Emus/%s/%s.pak/launch.sh", SDCARD_PATH, PLATFORM, emu_name);
+	// 调整：sprintf(pak_path, "%s/Emus/%s/%s.pak/launch.sh", SDCARD_PATH, PLATFORM, emu_name);
+	sprintf(pak_path, "%s/Emus/%s.pak/launch.sh", SDCARD_PATH, emu_name);
 	return exists(pak_path);
 }
 static int hasCue(char* dir_path, char* cue_path) { // NOTE: dir_path not rom_path
@@ -701,7 +703,8 @@ static int hasRoms(char* dir_name) {
 
 static int hasTools(void) {
 	char tools_path[256];
-    snprintf(tools_path, sizeof(tools_path), "%s/Tools/%s", SDCARD_PATH, PLATFORM);
+	// 调整：snprintf(tools_path, sizeof(tools_path), "%s/Tools/%s", SDCARD_PATH, PLATFORM);
+    snprintf(tools_path, sizeof(tools_path), "%s/Tools", SDCARD_PATH);
 	return exists(tools_path);
 }
 
@@ -820,7 +823,8 @@ static Array* getQuickEntries(void) {
 	// Add tools if applicable
     if (hasTools() && !simple_mode) {
 		char tools_path[256];
-		snprintf(tools_path, sizeof(tools_path), "%s/Tools/%s", SDCARD_PATH, PLATFORM);
+		// 调整：snprintf(tools_path, sizeof(tools_path), "%s/Tools/%s", SDCARD_PATH, PLATFORM);
+		snprintf(tools_path, sizeof(tools_path), "%s/Tools", SDCARD_PATH);
         Array_push(entries, Entry_new(tools_path, ENTRY_DIR));
     }
 
@@ -872,7 +876,8 @@ static Array* getRoot(void) {
 	// Add tools if applicable
     if (hasTools() && !simple_mode) {
 		char tools_path[256];
-		snprintf(tools_path, sizeof(tools_path), "%s/Tools/%s", SDCARD_PATH, PLATFORM);
+		// 调整：snprintf(tools_path, sizeof(tools_path), "%s/Tools/%s", SDCARD_PATH, PLATFORM);
+		snprintf(tools_path, sizeof(tools_path), "%s/Tools", SDCARD_PATH);
         Array_push(root, Entry_new(tools_path, ENTRY_DIR));
     }
 
