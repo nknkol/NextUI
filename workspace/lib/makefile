@@ -11,9 +11,9 @@ endif
 
 all:
 	cd ./libmsettings && make
-	cd ./libcommon && make
-	cd ./libwifimg && make
 	cd ./libwifid && make
+	cd ./libwifimg && make
+	cd ./libcommon && make
 	cd ./libbatmondb && make
 	cd ./libgametimedb && make
 
