@@ -15,13 +15,28 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <time.h>
 
 #include "utils.h"
 #include "config.h"
-
+#include <ctype.h>
 #include <pthread.h>
 
 ///////////////////////////////
+
+// 静态文件句柄，用于持有实时日志文件
+static FILE* realtime_log_file = NULL;
+
+// atexit 注册的清理函数
+static void close_realtimelog(void) {
+    if (realtime_log_file) {
+        time_t now;
+        time(&now);
+        fprintf(realtime_log_file, "--- Log finished at %s", ctime(&now));
+        fclose(realtime_log_file);
+        realtime_log_file = NULL;
+    }
+}
 
 void LOG_note(int level, const char* fmt, ...) {
 	char buf[1024] = {0};
@@ -29,6 +44,62 @@ void LOG_note(int level, const char* fmt, ...) {
 	va_start(args, fmt);
 	vsnprintf(buf, sizeof(buf), fmt, args);
 	va_end(args);
+
+    if (level == LOG_REALTIME) {
+        // --- 自动初始化逻辑 ---
+        if (realtime_log_file == NULL) {
+            char proc_path[64];
+            char proc_name[64] = "unknown_app"; // 默认名
+
+			FILE* f_proc = fopen("/proc/self/comm", "r");
+			if (f_proc) {
+				if (fgets(proc_name, sizeof(proc_name), f_proc) != NULL) {
+					/* --- BEGIN: 健壮的文件名净化逻辑 --- */
+					char *read_ptr = proc_name;
+					char *write_ptr = proc_name;
+
+					while (*read_ptr) {
+						// 只保留字母、数字、连字符、下划线和点
+						if (isalnum((unsigned char)*read_ptr) || *read_ptr == '-' || *read_ptr == '_' || *read_ptr == '.') {
+							*write_ptr = *read_ptr;
+							write_ptr++;
+						}
+						read_ptr++;
+					}
+					// 在净化后的字符串末尾添加结束符
+					*write_ptr = '\0';
+					/* --- END: 健壮的文件名净化逻辑 --- */
+				}
+				fclose(f_proc);
+			}
+
+            char log_path[MAX_PATH];
+            snprintf(log_path, sizeof(log_path), "%s/%s_realtime.txt", LOGS_PATH, proc_name);
+            
+            // 以 "w" 模式打开，清空旧日志
+            realtime_log_file = fopen(log_path, "w");
+            if (realtime_log_file) {
+                // 注册退出时要调用的清理函数
+                atexit(close_realtimelog); 
+                time_t now;
+                time(&now);
+                fprintf(realtime_log_file, "--- Log started at %s", ctime(&now));
+                fflush(realtime_log_file);
+            }
+        }
+        // --- 自动初始化结束 ---
+
+        if (realtime_log_file) {
+            time_t now;
+            time(&now);
+            char time_buf[sizeof("HH:MM:SS")];
+            strftime(time_buf, sizeof(time_buf), "%H:%M:%S", localtime(&now));
+            fprintf(realtime_log_file, "[%s] %s", time_buf, buf);
+            fflush(realtime_log_file);
+        }
+        return;
+    }
+    
 	switch(level) {
 #ifdef DEBUG
 	case LOG_DEBUG:

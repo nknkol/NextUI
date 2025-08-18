@@ -16,6 +16,7 @@
 #include <assert.h>
 #include <limits.h>
 #include "lang.h"
+#include "plugin.h"
 ///////////////////////////////////////
 
 typedef struct Array {
@@ -91,7 +92,6 @@ static void StringArray_free(Array* self) {
 	}
 	Array_free(self);
 }
-
 ///////////////////////////////////////
 
 typedef struct Hash {
@@ -127,6 +127,7 @@ enum EntryType {
 	ENTRY_PAK,
 	ENTRY_ROM,
 	ENTRY_DIP,
+	ENTRY_PLUGIN, // 新增
 };
 typedef struct Entry {
 	char* path;
@@ -222,6 +223,46 @@ static int getIndexChar(char* str) {
 	char c = tolower(str[0]);
 	if (c>='a' && c<='z') i = (c-'a')+1;
 	return i;
+}
+// 在文件顶部附近添加一个新函数
+static void GFX_showLauncherTransition(SDL_Surface* screen, Entry* entry) {
+    GFX_clear(screen);
+
+    char icon_path[MAX_PATH];
+    char* filename = strrchr(entry->path, '/') + 1;
+    
+    // 创建一个副本以安全地修改
+    char filename_copy[256];
+    strncpy(filename_copy, filename, sizeof(filename_copy) - 1);
+    filename_copy[sizeof(filename_copy) - 1] = '\0';
+
+    char* dot = strrchr(filename_copy, '.');
+    if (dot) *dot = '\0'; // a.pak -> a
+
+    char dirname_copy[MAX_PATH];
+    strncpy(dirname_copy, entry->path, sizeof(dirname_copy) - 1);
+    dirname_copy[sizeof(dirname_copy) - 1] = '\0';
+
+    sprintf(icon_path, "%s/.media/%s.png", dirname(dirname_copy), filename_copy);
+
+    SDL_Surface* icon = NULL;
+    if (exists(icon_path)) {
+        icon = IMG_Load(icon_path);
+    }
+
+    if (icon) {
+        int x = (screen->w - icon->w) / 2;
+        int y = (screen->h - icon->h) / 2;
+        SDL_BlitSurface(icon, NULL, screen, &(SDL_Rect){x,y});
+        SDL_FreeSurface(icon);
+    }
+
+    char loading_text[256];
+    sprintf(loading_text, "Loading %s...", entry->name);
+    GFX_blitMessage(font.small, loading_text, screen, &(SDL_Rect){0, screen->h - SCALE1(PILL_SIZE * 2), screen->w, SCALE1(PILL_SIZE)});
+
+    GFX_flip(screen);
+    SDL_Delay(500); // 短暂显示
 }
 
 static void getUniqueName(Entry* entry, char* out_name) {
@@ -455,6 +496,7 @@ static void RecentArray_free(Array* self) {
 static Directory* top;
 static Array* stack; // DirectoryArray
 static Array* recents; // RecentArray
+// static Array* plugins; // 新增：用于存放所有已加载的插件条目
 static Array *quick; // EntryArray
 static Array *quickActions; // EntryArray
 
@@ -1015,7 +1057,10 @@ static void addEntries(Array* entries, char* path) {
 			strcpy(tmp, dp->d_name);
 			int is_dir = dp->d_type==DT_DIR;
 			int type;
-			if (is_dir) {
+			if (suffixMatch(".so", dp->d_name)) { // 新增: 检查.so文件
+				type = ENTRY_PLUGIN;
+			}
+			else if (is_dir) {
 				// TODO: this should make sure launch.sh exists
 				if (suffixMatch(".pak", dp->d_name)) {
 					type = ENTRY_PAK;
@@ -1050,6 +1095,10 @@ static int isConsoleDir(char* path) {
 
 static Array* getEntries(char* path){
 	Array* entries = Array_new();
+    // 新增：检查当前路径是否为 Tools 目录
+	char tools_path[256];
+	snprintf(tools_path, sizeof(tools_path), "%s/Tools", SDCARD_PATH);
+	int is_tools_dir = exactMatch(path, tools_path);
 
 	if (isConsoleDir(path)) { // top-level console folder, might collate
 		char collated_path[256];
@@ -1078,6 +1127,21 @@ static Array* getEntries(char* path){
 		}
 	}
 	else addEntries(entries, path); // just a subfolder
+	
+	if (is_tools_dir) {
+        PluginEntry* current_plugin = PLUGINS_get(); // 从 libcommon 获取插件链表的头
+        while (current_plugin != NULL) {
+            // 将链表中的插件信息，转换为 nextui 内部的 Entry 结构
+            Entry* entry = Entry_new(current_plugin->path, ENTRY_PLUGIN);
+            free(entry->name); // 释放 getDisplayName 生成的默认名
+            entry->name = strdup(current_plugin->name); // 使用插件链表中存储的、更友好的名字
+			
+            // 将转换后的 Entry 添加到 nextui 自己的 Array 中用于显示
+            Array_push(entries, entry); 
+            
+            current_plugin = current_plugin->next; // 移动到下一个插件
+        }
+	}
 	
 	EntryArray_sort(entries);
 	return entries;
@@ -1485,27 +1549,44 @@ static void toggleQuick(Entry* self)
 	}
 }
 
-static void Entry_open(Entry* self) {
+static void Entry_open(SDL_Surface* screen, int* dirty, Entry* self) {
 	recent_alias = self->name;  // yiiikes
-	if (self->type==ENTRY_ROM) {
+	if (self->type==ENTRY_ROM || self->type==ENTRY_PAK) {
 		startgame = 1;
-		char *last = NULL;
-		if (prefixMatch(COLLECTIONS_PATH, top->path)) {
-			char* tmp;
-			char filename[256];
-			
-			tmp = strrchr(self->path, '/');
-			if (tmp) strcpy(filename, tmp+1);
-			
-			char last_path[256];
-			sprintf(last_path, "%s/%s", top->path, filename);
-			last = last_path;
+		GFX_showLauncherTransition(screen, self); // 传递 screen
+		if (self->type==ENTRY_ROM) {
+			char *last = NULL;
+			if (prefixMatch(COLLECTIONS_PATH, top->path)) {
+				char* tmp;
+				char filename[256];
+				
+				tmp = strrchr(self->path, '/');
+				if (tmp) strcpy(filename, tmp+1);
+				
+				char last_path[256];
+				sprintf(last_path, "%s/%s", top->path, filename);
+				last = last_path;
+			}
+			openRom(self->path, last);
 		}
-		openRom(self->path, last);
+		else { // ENTRY_PAK
+			openPak(self->path);
+		}
 	}
-	else if (self->type==ENTRY_PAK) {
-		startgame = 1;
-		openPak(self->path);
+	else if (self->type==ENTRY_PLUGIN) { 
+		NextUI_Plugin* plugin = PLUGIN_load(self->path);
+		if (plugin) {
+			GFX_clear(screen); // 传递 screen
+			GFX_flip(screen);
+
+			if (plugin->init(screen) == 0) {
+				plugin->run();
+			}
+			plugin->quit();
+
+			*dirty = 1; // 通过指针修改 dirty
+			PAD_reset();
+		}
 	}
 	else if (self->type==ENTRY_DIR) {
 		openDirectory(self->path, 1);
@@ -1595,6 +1676,49 @@ static void loadLast(void) { // call after loading root directory
 }
 
 ///////////////////////////////////////
+// static void Plugins_init(void) {
+//     plugins = Array_new();
+//     char plugin_dir_path[MAX_PATH];
+//     snprintf(plugin_dir_path, sizeof(plugin_dir_path), "%s/.system/lib", SDCARD_PATH);
+
+//     DIR *dh = opendir(plugin_dir_path);
+//     if (dh != NULL) {
+//         struct dirent *dp;
+//         char full_path[MAX_PATH];
+//         while ((dp = readdir(dh)) != NULL) {
+//             if (suffixMatch(".so", dp->d_name)) {
+//                 snprintf(full_path, sizeof(full_path), "%s/%s", plugin_dir_path, dp->d_name);
+
+//                 // --- 新增：插件验证逻辑 ---
+//                 void* handle = dlopen(full_path, RTLD_LAZY);
+//                 if (!handle) {
+//                     // 如果无法打开，说明它不是一个有效的共享库，跳过
+//                     LOG_warn("Could not open shared library: %s\n", dlerror());
+//                     continue;
+//                 }
+
+//                 // 检查它是否包含 GetPlugin 函数
+//                 dlerror(); // 清除之前的错误信息
+//                 dlsym(handle, GET_PLUGIN_SYMBOL);
+//                 if (dlerror() != NULL) {
+//                     // 如果找不到约定的函数，说明它不是我们的插件，跳过
+//                     dlclose(handle);
+//                     continue;
+//                 }
+
+//                 // 验证通过！这是一个真正的插件
+//                 dlclose(handle); // 立刻关闭，我们只在用户点击时才真正加载
+//                 Array_push(plugins, Entry_new(full_path, ENTRY_PLUGIN));
+//                 // --- 验证逻辑结束 ---
+//             }
+//         }
+//         closedir(dh);
+//     }
+// }
+
+// static void Plugins_quit(void) {
+//     EntryArray_free(plugins);
+// }
 
 static void QuickMenu_init(void) {
 	quick = getQuickEntries();
@@ -1605,18 +1729,21 @@ static void QuickMenu_quit(void) {
 	EntryArray_free(quickActions);
 }
 
+// 3. 修改 Menu_init 和 Menu_quit 来调用新的公共函数
 static void Menu_init(void) {
-	stack = Array_new(); // array of open Directories
+	stack = Array_new();
 	recents = Array_new();
+	PLUGINS_init(); // <-- 修改为调用公共函数
 
 	openDirectory(SDCARD_PATH, 0);
-	loadLast(); // restore state when available
+	loadLast();
 
-	QuickMenu_init(); // needs Menu_init
+	QuickMenu_init();
 }
 static void Menu_quit(void) {
 	RecentArray_free(recents);
 	DirectoryArray_free(stack);
+	PLUGINS_quit(); // <-- 修改为调用公共函数
 
 	QuickMenu_quit();
 }
@@ -2208,7 +2335,7 @@ int main (int argc, char *argv[]) {
 					restore_start = 0;
 					restore_end = 0;
 				}
-				Entry_open(selected);
+				Entry_open(screen, &dirty, selected); // 修改调用
 				dirty = 1;
 			}
 			else if (PAD_justPressed(BTN_RIGHT)) {
@@ -2287,7 +2414,7 @@ int main (int argc, char *argv[]) {
 				startgame = 1;
 				Entry *selectedEntry = entryFromRecent(recents->items[switcher_selected]);
 				should_resume = can_resume;
-				Entry_open(selectedEntry);
+				Entry_open(screen, &dirty, selectedEntry);
 				dirty = 1;
 				Entry_free(selectedEntry);
 			}
@@ -2433,12 +2560,12 @@ int main (int argc, char *argv[]) {
 
 			if (total>0 && can_resume && PAD_justReleased(BTN_RESUME)) {
 				should_resume = 1;
-				Entry_open(top->entries->items[top->selected]);
+				Entry_open(screen, &dirty, top->entries->items[top->selected]); // 修改调用
 				dirty = 1;
 			}
 			else if (total>0 && PAD_justPressed(BTN_A)) {
 				animationdirection = SLIDE_LEFT;
-				Entry_open(top->entries->items[top->selected]);
+				Entry_open(screen, &dirty, top->entries->items[top->selected]); // 修改调用
 				total = top->entries->count;
 				dirty = 1;
 				
@@ -2660,10 +2787,156 @@ int main (int argc, char *argv[]) {
 				lastScreen = SCREEN_QUICKMENU;
 			}
 			else if(startgame) {
-                // ... (此部分未修改)
+				pilltargetY = +screen->w;
+				animationdirection = ANIM_NONE;
+				SDL_Surface *tmpsur = GFX_captureRendererToSurface();
+				GFX_clearLayers(LAYER_ALL);
+				GFX_clear(screen);
+				GFX_flipHidden();
+
+				if(lastScreen==SCREEN_GAMESWITCHER) {
+					GFX_animateSurfaceOpacityAndScale(tmpsur,screen->w/2,screen->h/2,screen->w,screen->h,screen->w*4,screen->h*4,255,0,CFG_getMenuTransitions() ? 150:20,LAYER_BACKGROUND);
+				} else {
+					GFX_animateSurfaceOpacity(tmpsur,0,0,screen->w,screen->h,255,0,CFG_getMenuTransitions() ? 150:20,LAYER_BACKGROUND);
+				}
+				SDL_FreeSurface(tmpsur);
 			}
 			else if(currentScreen == SCREEN_GAMESWITCHER) {
-                // ... (此部分未修改)
+				GFX_clearLayers(LAYER_ALL);
+				ox = 0;
+				oy = 0;
+				
+				// For all recents with resumable state (i.e. has savegame), show game switcher carousel
+				if(recents->count > 0) {
+					Entry *selectedEntry = entryFromRecent(recents->items[switcher_selected]);
+					readyResume(selectedEntry);
+					// title pill
+					{
+						int max_width = screen->w - SCALE1(PADDING * 2) - ow;
+						
+						char display_name[256];
+						int text_width = GFX_truncateText(font.large, selectedEntry->name, display_name, max_width, SCALE1(BUTTON_PADDING*2));
+						max_width = MIN(max_width, text_width);
+
+						SDL_Surface* text;
+						SDL_Color textColor = uintToColour(THEME_COLOR6_255);
+						text = TTF_RenderUTF8_Blended(font.large, display_name, textColor);
+						GFX_blitPillLight(ASSET_WHITE_PILL, screen, &(SDL_Rect){
+							SCALE1(PADDING),
+							SCALE1(PADDING),
+							max_width,
+							SCALE1(PILL_SIZE)
+						});
+						SDL_BlitSurface(text, &(SDL_Rect){
+							0,
+							0,
+							max_width-SCALE1(BUTTON_PADDING*2),
+							text->h
+						}, screen, &(SDL_Rect){
+							SCALE1(PADDING+BUTTON_PADDING),
+							SCALE1(PADDING+4)
+						});
+						SDL_FreeSurface(text);
+					}
+
+					if(can_resume) GFX_blitButtonGroup((char*[]){ "B","BACK",  NULL }, 0, screen, 0);
+					else GFX_blitButtonGroup((char*[]){ BTN_SLEEP==BTN_POWER?"POWER":"MENU","SLEEP",  NULL }, 0, screen, 0);
+
+					GFX_blitButtonGroup((char*[]){ "Y", "REMOVE", "A","RESUME", NULL }, 1, screen, 1);
+
+					if(has_preview) {
+						// lotta memory churn here
+					
+						SDL_Surface* bmp = IMG_Load(preview_path);
+						SDL_Surface* raw_preview = SDL_ConvertSurfaceFormat(bmp, SDL_PIXELFORMAT_RGBA8888, 0);
+						if (raw_preview) {
+							SDL_FreeSurface(bmp); 
+							bmp = raw_preview; 
+						}
+						if(bmp) {
+							int aw = screen->w;
+							int ah = screen->h;
+							int ax = 0;
+							int ay = 0;
+						
+							float aspectRatio = (float)bmp->w / (float)bmp->h;
+							float screenRatio = (float)screen->w / (float)screen->h;
+					
+							if (screenRatio > aspectRatio) {
+								aw = (int)(screen->h * aspectRatio);
+								ah = screen->h;
+							} else {
+								aw = screen->w;
+								ah = (int)(screen->w / aspectRatio);
+							}
+							ax = (screen->w - aw) / 2;
+							ay = (screen->h - ah) / 2;
+						
+							if(lastScreen == SCREEN_GAME) {
+								// need to flip once so streaming_texture1 is updated
+								GFX_flipHidden();
+								GFX_animateSurfaceOpacityAndScale(bmp,screen->w/2,screen->h/2,screen->w*4,screen->h*4,aw,ah,0,255,CFG_getMenuTransitions() ? 150:20,LAYER_ALL);
+							} else if(lastScreen == SCREEN_GAMELIST) { 
+								
+								GFX_drawOnLayer(blackBG,0,0,screen->w,screen->h,1.0f,0,LAYER_BACKGROUND);
+								GFX_drawOnLayer(bmp,ax,ay,aw, ah,1.0f,0,LAYER_BACKGROUND);
+								GFX_flipHidden();
+								SDL_Surface *tmpNewScreen = GFX_captureRendererToSurface();
+								GFX_clearLayers(LAYER_ALL);
+								folderbgchanged=1;
+								GFX_drawOnLayer(tmpOldScreen,0,0,screen->w, screen->h,1.0f,0,LAYER_ALL);
+								GFX_animateSurface(tmpNewScreen,0,0-screen->h,0,0,screen->w,screen->h,CFG_getMenuTransitions() ? 100:20,255,255,LAYER_BACKGROUND);
+								SDL_FreeSurface(tmpNewScreen);
+								
+							} else if(lastScreen == SCREEN_GAMESWITCHER) {
+								GFX_flipHidden();
+								GFX_drawOnLayer(blackBG,0,0,screen->w, screen->h,1.0f,0,LAYER_BACKGROUND);
+								if(gsanimdir == SLIDE_LEFT) 
+									GFX_animateSurface(bmp,ax+screen->w,ay,ax,ay,aw,ah,CFG_getMenuTransitions() ? 80:20,0,255,LAYER_ALL);
+								else if(gsanimdir == SLIDE_RIGHT)
+									GFX_animateSurface(bmp,ax-screen->w,ay,ax,ay,aw,ah,CFG_getMenuTransitions() ? 80:20,0,255,LAYER_ALL);
+								
+								GFX_drawOnLayer(bmp,ax,ay,aw,ah,1.0f,0,LAYER_BACKGROUND);
+							} else if(lastScreen == SCREEN_QUICKMENU) {
+								GFX_flipHidden();
+								GFX_drawOnLayer(blackBG,0,0,screen->w, screen->h,1.0f,0,LAYER_BACKGROUND);								
+								GFX_drawOnLayer(bmp,ax,ay,aw,ah,1.0f,0,LAYER_BACKGROUND);
+							}
+							SDL_FreeSurface(bmp);  // Free after rendering
+						}
+					}
+					else {
+						SDL_Rect preview_rect = {ox,oy,screen->w,screen->h};
+						SDL_Surface * tmpsur = SDL_CreateRGBSurfaceWithFormat(0,screen->w,screen->h,32,SDL_PIXELFORMAT_RGBA8888);
+						SDL_FillRect(tmpsur, &preview_rect, SDL_MapRGBA(screen->format,0,0,0,255));
+						if(lastScreen == SCREEN_GAME) {
+							GFX_animateSurfaceOpacityAndScale(tmpsur,screen->w/2,screen->h/2,screen->w*4,screen->h*4,screen->w,screen->h,255,0,CFG_getMenuTransitions() ? 150:20,LAYER_BACKGROUND);
+						} else if(lastScreen == SCREEN_GAMELIST) { 
+							GFX_animateSurface(tmpsur,0,0-screen->h,0,0,screen->w,screen->h,CFG_getMenuTransitions() ? 100:20,255,255,LAYER_ALL);
+						} else if(lastScreen == SCREEN_GAMESWITCHER) {
+							GFX_flipHidden();
+							if(gsanimdir == SLIDE_LEFT) 
+								GFX_animateSurface(tmpsur,0+screen->w,0,0,0,screen->w,screen->h,CFG_getMenuTransitions() ? 80:20,0,255,LAYER_ALL);
+							else if(gsanimdir == SLIDE_RIGHT)
+								GFX_animateSurface(tmpsur,0-screen->w,0,0,0,screen->w,screen->h,CFG_getMenuTransitions() ? 80:20,0,255,LAYER_ALL);
+						}
+						SDL_FreeSurface(tmpsur);
+						GFX_blitMessage(font.large, "No Preview", screen, &preview_rect);
+					}
+					Entry_free(selectedEntry);
+				}
+				else {
+					SDL_Rect preview_rect = {ox,oy,screen->w,screen->h};
+					SDL_FillRect(screen, &preview_rect, 0);
+					GFX_blitMessage(font.large, "No Recents", screen, &preview_rect);
+					GFX_blitButtonGroup((char*[]){ "B","BACK", NULL }, 1, screen, 1);
+				}
+				
+				GFX_flipHidden();
+
+				if(switcherSur) SDL_FreeSurface(switcherSur);
+				switcherSur = GFX_captureRendererToSurface();
+				lastScreen = SCREEN_GAMESWITCHER;
 			}
 			else { // if currentscreen == SCREEN_GAMELIST
 				// background and game art file path stuff

@@ -7,15 +7,18 @@ $(error please specify PLATFORM, eg. PLATFORM=trimui make)
 endif
 ###########################################################
 
-.PHONY: all 
+.PHONY: all cores
 
 all:
 	cd ./lib && make
 	cd ./apps && make
 	cd ./system && make
-	cd ./cores && make
 	cd ./tools && make
 	cd ./other && make
+	cd ./plugin && make
+	
+cores:
+	cd ./cores && make
 
 clean:
 	cd ./lib && make clean

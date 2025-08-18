@@ -5,7 +5,8 @@
 #include "scaler.h"
 #include "config.h"
 #include <stdbool.h>
-
+#include "defines.h"
+#include "plugin.h"
 ///////////////////////////////
 
 enum {
@@ -13,6 +14,7 @@ enum {
 	LOG_INFO,
 	LOG_WARN,
 	LOG_ERROR,
+	LOG_REALTIME,
 };
 
 #define LOG_debug(fmt, ...) LOG_note(LOG_DEBUG, fmt, ##__VA_ARGS__)
@@ -752,5 +754,11 @@ void PLAT_wifiPostSleep();
 #define WIFI_diagnosticsEnable PLAT_wifiDiagnosticsEnable
 #define WIFI_aboutToSleep PLAT_wifiPreSleep
 #define WIFI_wokeFromSleep PLAT_wifiPostSleep
+///////////////////////////////
+// --- 插件系统接口 ---
+void PLUGINS_init(void);
+void PLUGINS_quit(void);
+PluginEntry* PLUGINS_get(void); // 返回插件链表的头指针
+NextUI_Plugin* PLUGIN_load(const char* path);
 
 #endif
