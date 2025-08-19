@@ -25,8 +25,8 @@ enum {
 static int plugin_init(void* main_screen) {
     screen = (SDL_Surface*)main_screen; // 将 void* 转换回来
 
-	GFX_clear(screen);
-    GFX_flip(screen);
+	// GFX_clear(screen);
+    // GFX_flip(screen);
     quit_plugin = 0;
     return 0;
 }
@@ -52,7 +52,17 @@ static int plugin_run() {
 		SDL_FreeSurface(digit);
 		i += 1;
 	}
-	
+	if (PLAT_isOnline()) { // 使用 api.h 中提供的函数检查网络连接
+		// 1. 在屏幕上显示提示信息
+		GFX_clear(screen);
+		SDL_Rect msg_rect = {0, 0, screen->w, screen->h}; // 使消息居中
+		GFX_blitMessage(font.large, "Syncing network time...", screen, &msg_rect);
+		GFX_flip(screen);
+		// 2. 执行网络时间同步命令 (sntp 在嵌入式 Linux 中很常见)
+		//    -sS 参数表示设置时间，并且即使时间差很大也强制同步
+		system("sntp -sS pool.ntp.org");
+		SDL_Delay(500); // 短暂显示提示信息，让用户看到
+	}
 	int save_changes = 0;
 	int select_cursor = 0;
 	int show_24hour = exists(USERDATA_PATH "/show_24hour");

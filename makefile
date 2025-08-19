@@ -241,7 +241,8 @@ shell:
 nextui_SRC      := workspace/apps/nextui/build/tg5040/nextui.elf
 nextui_DEST     := /mnt/SDCARD/.system/bin
 nextui_COMMANDS := @echo "--> 正在推送 nextui..." && \
-                   adb push $(nextui_SRC) $(nextui_DEST)
+                   adb push $(nextui_SRC) $(nextui_DEST) && \
+				   adb reboot
 
 minarch_SRC      := workspace/other_apps/minarch/build/tg5040/minarch.elf
 minarch_DEST     := /mnt/SDCARD/.system/bin

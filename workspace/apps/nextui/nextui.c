@@ -224,9 +224,10 @@ static int getIndexChar(char* str) {
 	if (c>='a' && c<='z') i = (c-'a')+1;
 	return i;
 }
-// 在文件顶部附近添加一个新函数
+// 启动加载函数
 static void GFX_showLauncherTransition(SDL_Surface* screen, Entry* entry) {
-    GFX_clear(screen);
+	GFX_clearLayers(LAYER_ALL);
+    // GFX_clear(screen);
 
     char icon_path[MAX_PATH];
     char* filename = strrchr(entry->path, '/') + 1;
@@ -1576,8 +1577,9 @@ static void Entry_open(SDL_Surface* screen, int* dirty, Entry* self) {
 	else if (self->type==ENTRY_PLUGIN) { 
 		NextUI_Plugin* plugin = PLUGIN_load(self->path);
 		if (plugin) {
-			GFX_clear(screen); // 传递 screen
-			GFX_flip(screen);
+			GFX_clearLayers(LAYER_ALL);
+			// GFX_clear(screen); // 传递 screen
+			// GFX_flip(screen);
 
 			if (plugin->init(screen) == 0) {
 				plugin->run();
@@ -2561,11 +2563,13 @@ int main (int argc, char *argv[]) {
 			if (total>0 && can_resume && PAD_justReleased(BTN_RESUME)) {
 				should_resume = 1;
 				Entry_open(screen, &dirty, top->entries->items[top->selected]); // 修改调用
+				if (quit) continue;
 				dirty = 1;
 			}
 			else if (total>0 && PAD_justPressed(BTN_A)) {
 				animationdirection = SLIDE_LEFT;
 				Entry_open(screen, &dirty, top->entries->items[top->selected]); // 修改调用
+				if (quit) continue;
 				total = top->entries->count;
 				dirty = 1;
 				
