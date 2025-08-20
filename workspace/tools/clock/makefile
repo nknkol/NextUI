@@ -21,7 +21,7 @@ SDL?=SDL
 
 TARGET = clock
 INCDIR = -I. -I../../lib/libcommon/ -I../../lib/libcommon/platform/
-SOURCE = $(TARGET).c ../../lib/libcommon/lang.c ../../lib/libcommon/utils.c ../../lib/libcommon/api.c ../../lib/libcommon/config.c ../../lib/libcommon/scaler.c ../../lib/libcommon/platform.c
+SOURCE = $(TARGET).c ../../lib/libcommon/lang.c ../../lib/libcommon/utils.c ../../lib/libcommon/api.c ../../lib/libcommon/config.c ../../lib/libcommon/scaler.c ../../lib/libcommon/platform.c ../../lib/libcommon/sysui.c
 
 CC = $(CROSS_COMPILE)gcc
 CFLAGS  += $(ARCH) -fomit-frame-pointer
