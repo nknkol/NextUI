@@ -32,6 +32,7 @@ typedef struct {
     uint32_t overlay_display_start_time;
     SDL_Surface* screen_surface;
     GFX_Fonts* fonts;
+    bool show_bottom_bar;
 } SysUI_Context;
 
 

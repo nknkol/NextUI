@@ -21,7 +21,7 @@
 #include "config.h"
 #include <ctype.h>
 #include <pthread.h>
-
+#include "sysui.h"
 ///////////////////////////////
 
 // 静态文件句柄，用于持有实时日志文件

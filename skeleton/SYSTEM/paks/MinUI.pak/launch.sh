@@ -141,8 +141,8 @@ else
 	wifi_daemon &
 fi
 
-keymon.elf & # &> $SDCARD_PATH/keymon.txt &
-batmon.elf & # &> $SDCARD_PATH/batmon.txt &
+keymon.elf &&> $SDCARD_PATH/keymon.txt &
+batmon.elf &&> $SDCARD_PATH/batmon.txt &
 
 #######################################
 
