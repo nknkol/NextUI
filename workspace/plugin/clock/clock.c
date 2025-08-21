@@ -1,4 +1,3 @@
-// workspace/tools/clock/clock.c
 #include <stdio.h>
 #include <time.h>
 #include <unistd.h>
@@ -7,7 +6,8 @@
 #include "defines.h"
 #include "api.h"
 #include "utils.h"
-#include "plugin.h" // 包含插件头文件
+#include "plugin.h"
+#include "sysui.h"
 
 static SDL_Surface* screen;
 static int quit_plugin;
@@ -23,11 +23,14 @@ enum {
 };
 
 static int plugin_init(void* main_screen) {
-    screen = (SDL_Surface*)main_screen; // 将 void* 转换回来
-
-	// GFX_clear(screen);
-    // GFX_flip(screen);
+    screen = (SDL_Surface*)main_screen;
     quit_plugin = 0;
+    
+    SysUI_Init(screen, &font);
+    SysUI_SetTitle("Date and time");
+    SysUI_SetBottomHints("SELECT", "24H", "A", "SET", "B", "BACK");
+    SysUI_SetFullscreen(false);
+
     return 0;
 }
 
@@ -52,16 +55,13 @@ static int plugin_run() {
 		SDL_FreeSurface(digit);
 		i += 1;
 	}
-	if (PLAT_isOnline()) { // 使用 api.h 中提供的函数检查网络连接
-		// 1. 在屏幕上显示提示信息
+	if (PLAT_isOnline()) { 
 		GFX_clear(screen);
-		SDL_Rect msg_rect = {0, 0, screen->w, screen->h}; // 使消息居中
+		SDL_Rect msg_rect = {0, 0, screen->w, screen->h}; 
 		GFX_blitMessage(font.large, "Syncing network time...", screen, &msg_rect);
 		GFX_flip(screen);
-		// 2. 执行网络时间同步命令 (sntp 在嵌入式 Linux 中很常见)
-		//    -sS 参数表示设置时间，并且即使时间差很大也强制同步
 		system("sntp -sS pool.ntp.org");
-		SDL_Delay(500); // 短暂显示提示信息，让用户看到
+		SDL_Delay(500); 
 	}
 	int save_changes = 0;
 	int select_cursor = 0;
@@ -111,25 +111,47 @@ static int plugin_run() {
 	
 	int option_count = 7;
 	int dirty = 1;
+    
+    int show_setting = 0; 
 
 	while(!quit_plugin) {
+		uint32_t now = SDL_GetTicks();
 		PAD_poll();
+        
+        PWR_update(&dirty, &show_setting, NULL, NULL);
+        if (SysUI_Update(&pad)) dirty = 1;
+
 		if (PAD_justRepeated(BTN_UP)) { dirty = 1; switch(select_cursor) { case CURSOR_YEAR: year_selected++; break; case CURSOR_MONTH: month_selected++; break; case CURSOR_DAY: day_selected++; break; case CURSOR_HOUR: hour_selected++; break; case CURSOR_MINUTE: minute_selected++; break; case CURSOR_SECOND: seconds_selected++; break; case CURSOR_AMPM: hour_selected += 12; break; } }
 		else if (PAD_justRepeated(BTN_DOWN)) { dirty = 1; switch(select_cursor) { case CURSOR_YEAR: year_selected--; break; case CURSOR_MONTH: month_selected--; break; case CURSOR_DAY: day_selected--; break; case CURSOR_HOUR: hour_selected--; break; case CURSOR_MINUTE: minute_selected--; break; case CURSOR_SECOND: seconds_selected--; break; case CURSOR_AMPM: hour_selected -= 12; break; } }
 		else if (PAD_justRepeated(BTN_LEFT)) { dirty = 1; select_cursor--; if (select_cursor < 0) select_cursor += option_count; }
 		else if (PAD_justRepeated(BTN_RIGHT)) { dirty = 1; select_cursor++; if (select_cursor >= option_count) select_cursor -= option_count; }
 		else if (PAD_justPressed(BTN_A)) { save_changes = 1; quit_plugin = 1; }
-		else if (PAD_justPressed(BTN_B) || PAD_justPressed(BTN_MENU)) { quit_plugin = 1; }
-		else if (PAD_justPressed(BTN_SELECT)) { dirty = 1; show_24hour = !show_24hour; option_count = (show_24hour ? CURSOR_SECOND : CURSOR_AMPM) + 1; if (select_cursor >= option_count) select_cursor -= option_count; if (show_24hour) system("touch " USERDATA_PATH "/show_24hour"); else system("rm " USERDATA_PATH "/show_24hour");}
+		else if (PAD_justPressed(BTN_B)) { quit_plugin = 1; }
+        // <<< 修正1：使用官方推荐的 PAD_tappedSelect 函数来处理单击事件 >>>
+        // 这个函数能可靠地识别短按并释放SELECT键的操作，并自动忽略将其作为组合键的情况。
+		else if (PAD_tappedSelect(now)) {
+            dirty = 1;
+            show_24hour = !show_24hour;
+            option_count = (show_24hour ? CURSOR_SECOND : CURSOR_AMPM) + 1;
+            if (select_cursor >= option_count) select_cursor -= option_count;
+            if (show_24hour) system("touch " USERDATA_PATH "/show_24hour");
+            else system("rm " USERDATA_PATH "/show_24hour");
+        }
 		
         if (dirty) {
             validate();
             GFX_clear(screen);
-            GFX_blitButtonGroup((char*[]){ "B","BACK", "A","SET", NULL }, 1, screen, 1);
             
+            // <<< 修正2：动态更新底部提示文本 >>>
+            // 根据当前是否为24小时制，来决定提示文本是“12H”还是“24H”
+            const char* hour_mode_hint = show_24hour ? "12H" : "24H";
+            SysUI_SetBottomHints("SELECT", hour_mode_hint, "A", "SET", "B", "BACK");
+
             int ox = (screen->w - (show_24hour?SCALE1(188):SCALE1(223))) / 2;
             int x = ox;
-            int y = SCALE1((((FIXED_HEIGHT / FIXED_SCALE)-PILL_SIZE-DIGIT_HEIGHT)/2));
+
+            int content_total_height = SCALE1(DIGIT_HEIGHT + 22);
+            int y = (screen->h - content_total_height) / 2;
             
             x = blitNumber(year_selected, x,y); x = blit(CHAR_SLASH, x,y); x = blitNumber(month_selected, x,y); x = blit(CHAR_SLASH, x,y); x = blitNumber(day_selected, x,y);
             x += SCALE1(10);
@@ -152,6 +174,8 @@ static int plugin_run() {
             if (select_cursor!=CURSOR_YEAR) { x += SCALE1(50); x += (select_cursor - 1) * SCALE1(30); }
             blitBar(x,y, (select_cursor==CURSOR_YEAR ? SCALE1(40) : (select_cursor==CURSOR_AMPM ? ampm_w : SCALE1(20))));
         
+            SysUI_Render();
+
             GFX_flip(screen);
             dirty = 0;
         } else GFX_sync();
@@ -163,12 +187,11 @@ static int plugin_run() {
 }
 
 static void plugin_quit(void) {
-    // No specific resources to free for clock plugin besides what's in run()
+    SysUI_Quit();
 }
 
-// 导出插件结构体
 static NextUI_Plugin clock_plugin = {
-    .name = "Clock_Plugin",
+    .name = "Clock",
     .init = plugin_init,
     .run = plugin_run,
     .quit = plugin_quit,
