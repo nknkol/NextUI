@@ -49,7 +49,7 @@ RELEASE_DIR    := ./releases
 SYSTEM_DIR     := $(BUILD_DIR)/SYSTEM
 SYSTEM_BIN     := $(SYSTEM_DIR)/bin
 SYSTEM_LIB     := $(SYSTEM_DIR)/lib
-PLUGINS_DIR    := $(SYSTEM_DIR)/plugin
+PLUGINS_DIR    := $(SYSTEM_DIR)/plugins
 SYSTEM_CORES   := $(SYSTEM_DIR)/cores
 BOOT_DIR       := $(BUILD_DIR)/BOOT
 EXTRAS_DIR     := $(BUILD_DIR)/EXTRAS
@@ -127,6 +127,7 @@ system:
 	cp $(SRC_OTHER_DIR)/unzip60/unzip $(BOOT_DIR)/common/$(PLATFORM)/
 	cp $(SRC_SYS_DIR)/wifimanager/daemon/wifi_daemon $(SYSTEM_BIN)/
 	cp $(SRC_SYS_DIR)/nextval/build/$(PLATFORM)/nextval.elf $(SYSTEM_BIN)/
+	cp $(SRC_SYS_DIR)/keymon/keymon.elf $(SYSTEM_BIN)/
 	cp $(SRC_SYS_DIR)/gametimectl/build/$(PLATFORM)/gametimectl.elf $(SYSTEM_BIN)/
 	cp $(SRC_SYS_DIR)/batmon/build/$(PLATFORM)/batmon.elf $(SYSTEM_BIN)/
 
@@ -283,23 +284,39 @@ compositor_COMMANDS       := @echo "--> 正在推送compositor..." && \
 					  adb push $(demo2_background_SRC) $(compositor_DEST) && \
 					  adb push $(compositorlaunch_SRC) $(compositor_DEST)
 
-# 默认的 push 行为
-default_COMMANDS := @echo "--> 正在构建并打包以供更新 (默认操作)..." && \
+# # 默认的 push 行为
+# default_COMMANDS := @echo "--> 正在构建并打包以供更新 (默认操作)..." && \
+#                     make all && \
+#                     @echo "--> 正在推送 MinUI.zip 到设备的 SD 卡..." && \
+#                     adb push $(BUILD_DIR)/BASE/MinUI.zip /mnt/SDCARD/ && \
+#                     @echo "--> 更新包推送完成。"
+nextui_SRC      := workspace/apps/nextui/build/tg5040/nextui.elf
+default_COMMANDS := echo "--> 正在构建并打包以供更新 (默认操作)..." && \
                     make all && \
-                    @echo "--> 正在推送 MinUI.zip 到设备的 SD 卡..." && \
+                    echo "--> 正在推送 MinUI.zip 到设备的 SD 卡..." && \
                     adb push $(BUILD_DIR)/BASE/MinUI.zip /mnt/SDCARD/ && \
-                    @echo "--> 更新包推送完成。"
+					adb reboot && \
+                    echo "--> 更新包推送完成。"
 
 # 根据 PROGRAM 变量选择最终执行的命令
 PROGRAM ?= default
 FINAL_COMMANDS := $($(PROGRAM)_COMMANDS)
 
+# push:
+# 	@if [ -z "$(FINAL_COMMANDS)" ]; then \
+# 		echo "错误: 未找到 PROGRAM='$(PROGRAM)' 的推送配置。"; \
+# 		echo "可用配置: nextui, minarch, lib, default, compositor"; \
+# 		exit 1; \
+# 	fi
+# 	$(FINAL_COMMANDS)
+# 	@echo "--> 操作完成。"
 push:
-	@if [ -z "$(FINAL_COMMANDS)" ]; then \
+	@if [ "$(origin $(PROGRAM)_COMMANDS)" = "undefined" ]; then \
 		echo "错误: 未找到 PROGRAM='$(PROGRAM)' 的推送配置。"; \
 		echo "可用配置: nextui, minarch, lib, default, compositor"; \
 		exit 1; \
 	fi
-	$(FINAL_COMMANDS)
+	# 在这里加上 @，让 make 来处理命令回显
+	@$($(PROGRAM)_COMMANDS)
 	@echo "--> 操作完成。"
 # =============================================================================
