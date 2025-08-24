@@ -19,6 +19,7 @@ all:
 	cd ./syncsettings && make
 	cd ./wifimanager && make
 	cd ./show && make
+	# cd ./compositor && make 
 
 clean:
 	cd ./batmon && make clean

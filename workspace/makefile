@@ -15,7 +15,7 @@ all:
 	cd ./system && make
 	cd ./tools && make
 	cd ./other && make
-	cd ./plugin && make
+	cd ./plugins && make
 	
 cores:
 	cd ./cores && make

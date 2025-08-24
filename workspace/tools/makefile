@@ -21,6 +21,9 @@ all:
 	cd ./minput && make
 	cd ./settings && make
 
+	# cd ./demo1_overlay && make 
+	# cd ./demo2_background && make
+
 clean:
 	cd ./battery && make clean
 	cd ./bootlogo && make clean

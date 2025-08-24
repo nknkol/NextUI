@@ -41,6 +41,7 @@ SRC_SYS_DIR   := $(WORKSPACE_DIR)/system
 SRC_CORE_DIR  := $(WORKSPACE_DIR)/cores/output
 SRC_TOOL_DIR  := $(WORKSPACE_DIR)/tools
 SRC_OTHER_DIR := $(WORKSPACE_DIR)/other
+SRC_PLUGINS_DIR := $(WORKSPACE_DIR)/plugins
 
 # 构建（目标）路径
 BUILD_DIR      := ./build
@@ -48,6 +49,7 @@ RELEASE_DIR    := ./releases
 SYSTEM_DIR     := $(BUILD_DIR)/SYSTEM
 SYSTEM_BIN     := $(SYSTEM_DIR)/bin
 SYSTEM_LIB     := $(SYSTEM_DIR)/lib
+PLUGINS_DIR    := $(SYSTEM_DIR)/plugin
 SYSTEM_CORES   := $(SYSTEM_DIR)/cores
 BOOT_DIR       := $(BUILD_DIR)/BOOT
 EXTRAS_DIR     := $(BUILD_DIR)/EXTRAS
@@ -91,7 +93,7 @@ build-cores:
 	make build-cores -f $(TOOLCHAIN_FILE) PLATFORM=$(PLATFORM) COMPILE_CORES=true
 
 # 将所有必要的文件复制到构建目录中
-cpfile: lib apps system cores tools
+cpfile: lib apps system cores tools plugins
 
 # --- 文件复制子目标 ---
 
@@ -106,6 +108,8 @@ lib:
 	cp $(SRC_LIB_DIR)/libmsettings/libmsettings.so $(SYSTEM_LIB)/
 	cp $(SRC_LIB_DIR)/libbatmondb/build/$(PLATFORM)/libbatmondb.so $(SYSTEM_LIB)/
 	cp $(SRC_LIB_DIR)/libgametimedb/build/$(PLATFORM)/libgametimedb.so $(SYSTEM_LIB)/
+
+	# cp $(SRC_SYS_DIR)/compositor/build/$(PLATFORM)/libfb_compositor.so $(EXTRAS_TOOLS)/Compositor.pak/
 
 apps:
 	cp $(SRC_APP_DIR)/nextui/build/$(PLATFORM)/nextui.elf $(SYSTEM_BIN)/
@@ -125,6 +129,7 @@ system:
 	cp $(SRC_SYS_DIR)/nextval/build/$(PLATFORM)/nextval.elf $(SYSTEM_BIN)/
 	cp $(SRC_SYS_DIR)/gametimectl/build/$(PLATFORM)/gametimectl.elf $(SYSTEM_BIN)/
 	cp $(SRC_SYS_DIR)/batmon/build/$(PLATFORM)/batmon.elf $(SYSTEM_BIN)/
+
 
 # 使用列表和 foreach 循环简化核心文件的复制过程
 STOCK_CORES  := fceumm gambatte gpsp picodrive snes9x pcsx_rearmed
@@ -164,13 +169,20 @@ cores:
 tools:
 	cp $(SRC_OTHER_DIR)/NextCommander/output/NextCommander $(EXTRAS_TOOLS)/Files.pak/
 	cp -r $(SRC_OTHER_DIR)/NextCommander/res $(EXTRAS_TOOLS)/Files.pak/
-	cp $(SRC_TOOL_DIR)/clock/build/$(PLATFORM)/clock.elf $(EXTRAS_TOOLS)/Clock.pak/
+# 	cp $(SRC_TOOL_DIR)/clock/build/$(PLATFORM)/clock.elf $(EXTRAS_TOOLS)/Clock.pak/
 	cp $(SRC_TOOL_DIR)/minput/build/$(PLATFORM)/minput.elf $(EXTRAS_TOOLS)/Input.pak/
 	cp $(SRC_TOOL_DIR)/battery/build/$(PLATFORM)/battery.elf $(EXTRAS_TOOLS)/Battery.pak/
 	cp $(SRC_TOOL_DIR)/gametime/build/$(PLATFORM)/gametime.elf $(EXTRAS_TOOLS)/Game\ Tracker.pak/
 	cp $(SRC_TOOL_DIR)/settings/build/$(PLATFORM)/settings.elf $(EXTRAS_TOOLS)/Settings.pak/
 	cp $(SRC_TOOL_DIR)/ledcontrol/build/$(PLATFORM)/ledcontrol.elf $(EXTRAS_TOOLS)/LedControl.pak/
 	cp $(SRC_TOOL_DIR)/bootlogo/build/$(PLATFORM)/bootlogo.elf $(EXTRAS_TOOLS)/Bootlogo.pak/
+
+	# cp $(SRC_SYS_DIR)/compositor/build/$(PLATFORM)/compositor.elf $(EXTRAS_TOOLS)/Compositor.pak/
+	# cp $(SRC_TOOL_DIR)/demo1_overlay/build/$(PLATFORM)/overlay.elf $(EXTRAS_TOOLS)/Compositor.pak/
+	# cp $(SRC_TOOL_DIR)/demo2_background/build/$(PLATFORM)/background.elf $(EXTRAS_TOOLS)/Compositor.pak/
+
+plugins:
+	cp $(SRC_PLUGINS_DIR)/clock/build/$(PLATFORM)/clock.so $(PLUGINS_DIR)/
 
 # --- 主要工作流程目标 ---
 
@@ -250,12 +262,26 @@ minarch_COMMANDS := @echo "--> 正在推送 minarch..." && \
                     adb push $(minarch_SRC) $(minarch_DEST)
 
 libcommon_SRC      := workspace/lib/libcommon/libcommon.so
-clockplugin_SRC    := workspace/plugin/clock/build/tg5040/clock.so
+clockplugin_SRC    := workspace/plugins/clock/build/tg5040/clock.so
 pluginlib_DEST     := /mnt/SDCARD/.system/plugin
 lib_DEST           := /mnt/SDCARD/.system/lib
 lib_COMMANDS       := @echo "--> 正在推送库文件及插件..." && \
                       adb push $(libcommon_SRC) $(lib_DEST) && \
 				      adb push $(clockplugin_SRC) $(pluginlib_DEST)
+
+
+compositor_SRC      := workspace/system/compositor/build/tg5040/compositor.elf
+libfb_compositor_SRC := workspace/system/compositor/build/tg5040/libfb_compositor.so
+demo1_overlay_SRC    := workspace/tools/demo1_overlay/build/tg5040/overlay.elf
+demo2_background_SRC := workspace/tools/demo2_background/build/tg5040/background.elf
+compositorlaunch_SRC := skeleton/EXTRAS/Tools/Compositor.pak/launch.sh
+compositor_DEST     := /mnt/SDCARD/Tools/Compositor.pak/
+compositor_COMMANDS       := @echo "--> 正在推送compositor..." && \
+                      adb push $(compositor_SRC) $(compositor_DEST) && \
+				      adb push $(libfb_compositor_SRC) $(compositor_DEST) && \
+					  adb push $(demo1_overlay_SRC) $(compositor_DEST) && \
+					  adb push $(demo2_background_SRC) $(compositor_DEST) && \
+					  adb push $(compositorlaunch_SRC) $(compositor_DEST)
 
 # 默认的 push 行为
 default_COMMANDS := @echo "--> 正在构建并打包以供更新 (默认操作)..." && \
@@ -271,7 +297,7 @@ FINAL_COMMANDS := $($(PROGRAM)_COMMANDS)
 push:
 	@if [ -z "$(FINAL_COMMANDS)" ]; then \
 		echo "错误: 未找到 PROGRAM='$(PROGRAM)' 的推送配置。"; \
-		echo "可用配置: nextui, minarch, lib, default"; \
+		echo "可用配置: nextui, minarch, lib, default, compositor"; \
 		exit 1; \
 	fi
 	$(FINAL_COMMANDS)
