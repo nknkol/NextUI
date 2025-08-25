@@ -170,7 +170,7 @@ cores:
 tools:
 	cp $(SRC_OTHER_DIR)/NextCommander/output/NextCommander $(EXTRAS_TOOLS)/Files.pak/
 	cp -r $(SRC_OTHER_DIR)/NextCommander/res $(EXTRAS_TOOLS)/Files.pak/
-# 	cp $(SRC_TOOL_DIR)/clock/build/$(PLATFORM)/clock.elf $(EXTRAS_TOOLS)/Clock.pak/
+	cp $(SRC_TOOL_DIR)/clock/build/$(PLATFORM)/clock.elf $(EXTRAS_TOOLS)/Clock.pak/
 	cp $(SRC_TOOL_DIR)/minput/build/$(PLATFORM)/minput.elf $(EXTRAS_TOOLS)/Input.pak/
 	cp $(SRC_TOOL_DIR)/battery/build/$(PLATFORM)/battery.elf $(EXTRAS_TOOLS)/Battery.pak/
 	cp $(SRC_TOOL_DIR)/gametime/build/$(PLATFORM)/gametime.elf $(EXTRAS_TOOLS)/Game\ Tracker.pak/
@@ -264,7 +264,7 @@ minarch_COMMANDS := @echo "--> 正在推送 minarch..." && \
 
 libcommon_SRC      := workspace/lib/libcommon/libcommon.so
 clockplugin_SRC    := workspace/plugins/clock/build/tg5040/clock.so
-pluginlib_DEST     := /mnt/SDCARD/.system/plugin
+pluginlib_DEST     := /mnt/SDCARD/.system/plugins
 lib_DEST           := /mnt/SDCARD/.system/lib
 lib_COMMANDS       := @echo "--> 正在推送库文件及插件..." && \
                       adb push $(libcommon_SRC) $(lib_DEST) && \
@@ -284,12 +284,6 @@ compositor_COMMANDS       := @echo "--> 正在推送compositor..." && \
 					  adb push $(demo2_background_SRC) $(compositor_DEST) && \
 					  adb push $(compositorlaunch_SRC) $(compositor_DEST)
 
-# # 默认的 push 行为
-# default_COMMANDS := @echo "--> 正在构建并打包以供更新 (默认操作)..." && \
-#                     make all && \
-#                     @echo "--> 正在推送 MinUI.zip 到设备的 SD 卡..." && \
-#                     adb push $(BUILD_DIR)/BASE/MinUI.zip /mnt/SDCARD/ && \
-#                     @echo "--> 更新包推送完成。"
 nextui_SRC      := workspace/apps/nextui/build/tg5040/nextui.elf
 default_COMMANDS := echo "--> 正在构建并打包以供更新 (默认操作)..." && \
                     make all && \
@@ -302,18 +296,10 @@ default_COMMANDS := echo "--> 正在构建并打包以供更新 (默认操作)..
 PROGRAM ?= default
 FINAL_COMMANDS := $($(PROGRAM)_COMMANDS)
 
-# push:
-# 	@if [ -z "$(FINAL_COMMANDS)" ]; then \
-# 		echo "错误: 未找到 PROGRAM='$(PROGRAM)' 的推送配置。"; \
-# 		echo "可用配置: nextui, minarch, lib, default, compositor"; \
-# 		exit 1; \
-# 	fi
-# 	$(FINAL_COMMANDS)
-# 	@echo "--> 操作完成。"
 push:
 	@if [ "$(origin $(PROGRAM)_COMMANDS)" = "undefined" ]; then \
 		echo "错误: 未找到 PROGRAM='$(PROGRAM)' 的推送配置。"; \
-		echo "可用配置: nextui, minarch, lib, default, compositor"; \
+		echo "可用配置: default, nextui, minarch, lib, compositor"; \
 		exit 1; \
 	fi
 	# 在这里加上 @，让 make 来处理命令回显

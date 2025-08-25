@@ -111,39 +111,40 @@ static int plugin_run() {
 	
 	int option_count = 7;
 	int dirty = 1;
+	bool input_handled_by_sysui = false; // 新增：用于标记SysUI是否处理了输入
     
-    int show_setting = 0; 
-
 	while(!quit_plugin) {
 		uint32_t now = SDL_GetTicks();
 		PAD_poll();
         
-        PWR_update(&dirty, &show_setting, NULL, NULL);
-        if (SysUI_Update(&pad)) dirty = 1;
+		// 首先让SysUI处理系统级输入（如亮度/音量快捷键）
+        input_handled_by_sysui = SysUI_Update();
+        if (input_handled_by_sysui) {
+			dirty = 1; // 如果SysUI有活动（如显示浮层），则需要重绘
+		}
 
-		if (PAD_justRepeated(BTN_UP)) { dirty = 1; switch(select_cursor) { case CURSOR_YEAR: year_selected++; break; case CURSOR_MONTH: month_selected++; break; case CURSOR_DAY: day_selected++; break; case CURSOR_HOUR: hour_selected++; break; case CURSOR_MINUTE: minute_selected++; break; case CURSOR_SECOND: seconds_selected++; break; case CURSOR_AMPM: hour_selected += 12; break; } }
-		else if (PAD_justRepeated(BTN_DOWN)) { dirty = 1; switch(select_cursor) { case CURSOR_YEAR: year_selected--; break; case CURSOR_MONTH: month_selected--; break; case CURSOR_DAY: day_selected--; break; case CURSOR_HOUR: hour_selected--; break; case CURSOR_MINUTE: minute_selected--; break; case CURSOR_SECOND: seconds_selected--; break; case CURSOR_AMPM: hour_selected -= 12; break; } }
-		else if (PAD_justRepeated(BTN_LEFT)) { dirty = 1; select_cursor--; if (select_cursor < 0) select_cursor += option_count; }
-		else if (PAD_justRepeated(BTN_RIGHT)) { dirty = 1; select_cursor++; if (select_cursor >= option_count) select_cursor -= option_count; }
-		else if (PAD_justPressed(BTN_A)) { save_changes = 1; quit_plugin = 1; }
-		else if (PAD_justPressed(BTN_B)) { quit_plugin = 1; }
-        // <<< 修正1：使用官方推荐的 PAD_tappedSelect 函数来处理单击事件 >>>
-        // 这个函数能可靠地识别短按并释放SELECT键的操作，并自动忽略将其作为组合键的情况。
-		else if (PAD_tappedSelect(now)) {
-            dirty = 1;
-            show_24hour = !show_24hour;
-            option_count = (show_24hour ? CURSOR_SECOND : CURSOR_AMPM) + 1;
-            if (select_cursor >= option_count) select_cursor -= option_count;
-            if (show_24hour) system("touch " USERDATA_PATH "/show_24hour");
-            else system("rm " USERDATA_PATH "/show_24hour");
-        }
+		// 仅当SysUI没有处理输入时，才执行插件自身的按键逻辑
+		if (!input_handled_by_sysui) {
+			if (PAD_justRepeated(BTN_UP)) { dirty = 1; switch(select_cursor) { case CURSOR_YEAR: year_selected++; break; case CURSOR_MONTH: month_selected++; break; case CURSOR_DAY: day_selected++; break; case CURSOR_HOUR: hour_selected++; break; case CURSOR_MINUTE: minute_selected++; break; case CURSOR_SECOND: seconds_selected++; break; case CURSOR_AMPM: hour_selected += 12; break; } }
+			else if (PAD_justRepeated(BTN_DOWN)) { dirty = 1; switch(select_cursor) { case CURSOR_YEAR: year_selected--; break; case CURSOR_MONTH: month_selected--; break; case CURSOR_DAY: day_selected--; break; case CURSOR_HOUR: hour_selected--; break; case CURSOR_MINUTE: minute_selected--; break; case CURSOR_SECOND: seconds_selected--; break; case CURSOR_AMPM: hour_selected -= 12; break; } }
+			else if (PAD_justRepeated(BTN_LEFT)) { dirty = 1; select_cursor--; if (select_cursor < 0) select_cursor += option_count; }
+			else if (PAD_justRepeated(BTN_RIGHT)) { dirty = 1; select_cursor++; if (select_cursor >= option_count) select_cursor -= option_count; }
+			else if (PAD_justPressed(BTN_A)) { save_changes = 1; quit_plugin = 1; }
+			else if (PAD_justPressed(BTN_B)) { quit_plugin = 1; }
+			else if (PAD_tappedSelect(now)) {
+				dirty = 1;
+				show_24hour = !show_24hour;
+				option_count = (show_24hour ? CURSOR_SECOND : CURSOR_AMPM) + 1;
+				if (select_cursor >= option_count) select_cursor -= option_count;
+				if (show_24hour) system("touch " USERDATA_PATH "/show_24hour");
+				else system("rm " USERDATA_PATH "/show_24hour");
+			}
+		}
 		
         if (dirty) {
             validate();
             GFX_clear(screen);
             
-            // <<< 修正2：动态更新底部提示文本 >>>
-            // 根据当前是否为24小时制，来决定提示文本是“12H”还是“24H”
             const char* hour_mode_hint = show_24hour ? "12H" : "24H";
             SysUI_SetBottomHints("SELECT", hour_mode_hint, "A", "SET", "B", "BACK");
 
@@ -174,6 +175,7 @@ static int plugin_run() {
             if (select_cursor!=CURSOR_YEAR) { x += SCALE1(50); x += (select_cursor - 1) * SCALE1(30); }
             blitBar(x,y, (select_cursor==CURSOR_YEAR ? SCALE1(40) : (select_cursor==CURSOR_AMPM ? ampm_w : SCALE1(20))));
         
+            // 渲染SysUI组件（标题、底部栏、以及亮度/音量等浮层）
             SysUI_Render();
 
             GFX_flip(screen);
@@ -191,7 +193,7 @@ static void plugin_quit(void) {
 }
 
 static NextUI_Plugin clock_plugin = {
-    .name = "Clock",
+    .name = "Clock_plugin",
     .init = plugin_init,
     .run = plugin_run,
     .quit = plugin_quit,

@@ -114,68 +114,74 @@ int main(int argc , char* argv[]) {
 
 	int option_count = 7;
 	int dirty = 1;
+	bool sys_input_handled = false; // 新增：用于标记SysUI是否处理了输入
 
 	while(!quit) {
 		// uint32_t frame_start = SDL_GetTicks();
 		
 		PAD_poll();
 
-		if (SysUI_Update(&pad)) {
+		// 让 SysUI 首先处理系统级输入（快捷键等）
+		// 如果它返回true，说明有状态更新（如浮层显示/隐藏），需要重绘
+		sys_input_handled = SysUI_Update();
+		if (sys_input_handled) {
 			dirty = 1;
 		}
 
-		if (PAD_justRepeated(BTN_UP)) {
-			dirty = 1;
-			switch(select_cursor) {
-				case CURSOR_YEAR: year_selected++; break;
-				case CURSOR_MONTH: month_selected++; break;
-				case CURSOR_DAY: day_selected++; break;
-				case CURSOR_HOUR: hour_selected++; break;
-				case CURSOR_MINUTE: minute_selected++; break;
-				case CURSOR_SECOND: seconds_selected++; break;
-				case CURSOR_AMPM: hour_selected += 12; break;
+		// 仅当 SysUI 没有处理任何快捷键时，才执行 clock 程序的自有按键逻辑
+		if (!sys_input_handled) {
+			if (PAD_justRepeated(BTN_UP)) {
+				dirty = 1;
+				switch(select_cursor) {
+					case CURSOR_YEAR: year_selected++; break;
+					case CURSOR_MONTH: month_selected++; break;
+					case CURSOR_DAY: day_selected++; break;
+					case CURSOR_HOUR: hour_selected++; break;
+					case CURSOR_MINUTE: minute_selected++; break;
+					case CURSOR_SECOND: seconds_selected++; break;
+					case CURSOR_AMPM: hour_selected += 12; break;
+				}
 			}
-		}
-		else if (PAD_justRepeated(BTN_DOWN)) {
-			dirty = 1;
-			switch(select_cursor) {
-				case CURSOR_YEAR: year_selected--; break;
-				case CURSOR_MONTH: month_selected--; break;
-				case CURSOR_DAY: day_selected--; break;
-				case CURSOR_HOUR: hour_selected--; break;
-				case CURSOR_MINUTE: minute_selected--; break;
-				case CURSOR_SECOND: seconds_selected--; break;
-				case CURSOR_AMPM: hour_selected -= 12; break;
+			else if (PAD_justRepeated(BTN_DOWN)) {
+				dirty = 1;
+				switch(select_cursor) {
+					case CURSOR_YEAR: year_selected--; break;
+					case CURSOR_MONTH: month_selected--; break;
+					case CURSOR_DAY: day_selected--; break;
+					case CURSOR_HOUR: hour_selected--; break;
+					case CURSOR_MINUTE: minute_selected--; break;
+					case CURSOR_SECOND: seconds_selected--; break;
+					case CURSOR_AMPM: hour_selected -= 12; break;
+				}
 			}
-		}
-		else if (PAD_justRepeated(BTN_LEFT)) {
-			dirty = 1;
-			select_cursor--;
-			if (select_cursor < 0) select_cursor += option_count;
-		}
-		else if (PAD_justRepeated(BTN_RIGHT)) {
-			dirty = 1;
-			select_cursor++;
-			if (select_cursor >= option_count) select_cursor -= option_count;
-		}
-		else if (PAD_justPressed(BTN_A)) {
-			save_changes = 1;
-			quit = 1;
-		}
-		else if (PAD_justPressed(BTN_B)) {
-			quit = 1;
-		}
-		else if (PAD_justPressed(BTN_SELECT)) {
-			dirty = 1;
-			show_24hour = !show_24hour;
-			option_count = (show_24hour ? CURSOR_SECOND : CURSOR_AMPM) + 1;
-			if (select_cursor >= option_count) select_cursor -= option_count;
-			
-			if (show_24hour) system("touch " USERDATA_PATH "/show_24hour");
-			else system("rm " USERDATA_PATH "/show_24hour");
+			else if (PAD_justRepeated(BTN_LEFT)) {
+				dirty = 1;
+				select_cursor--;
+				if (select_cursor < 0) select_cursor += option_count;
+			}
+			else if (PAD_justRepeated(BTN_RIGHT)) {
+				dirty = 1;
+				select_cursor++;
+				if (select_cursor >= option_count) select_cursor -= option_count;
+			}
+			else if (PAD_justPressed(BTN_A)) {
+				save_changes = 1;
+				quit = 1;
+			}
+			else if (PAD_justPressed(BTN_B)) {
+				quit = 1;
+			}
+			else if (PAD_justPressed(BTN_SELECT)) {
+				dirty = 1;
+				show_24hour = !show_24hour;
+				option_count = (show_24hour ? CURSOR_SECOND : CURSOR_AMPM) + 1;
+				if (select_cursor >= option_count) select_cursor -= option_count;
+				
+				if (show_24hour) system("touch " USERDATA_PATH "/show_24hour");
+				else system("rm " USERDATA_PATH "/show_24hour");
+			}
 		}
 		
-
 		if (dirty) {
 			validate();
 
@@ -228,6 +234,7 @@ int main(int argc , char* argv[]) {
 			}
 			blitBar(x,y, (select_cursor==CURSOR_YEAR ? SCALE1(40) : (select_cursor==CURSOR_AMPM ? ampm_w : SCALE1(20))));
 
+			// 确保调用 SysUI_Render() 来绘制顶部/底部栏和任何活动的浮层
 			SysUI_Render(); 
 
 			GFX_flip(screen);

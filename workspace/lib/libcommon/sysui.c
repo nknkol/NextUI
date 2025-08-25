@@ -7,10 +7,10 @@
 // 全局唯一的 SysUI 上下文实例
 static SysUI_Context g_sysui_ctx;
 #define OVERLAY_TIMEOUT_MS 1500
-#undef PAD_isPressed
-#undef PAD_justRepeated
-#define PAD_isPressed(p, btn)		(((p)->is_pressed) & (btn))
-#define PAD_justRepeated(p, btn)	(((p)->just_repeated) & (btn))
+// #undef PAD_isPressed
+// #undef PAD_justRepeated
+// #define PAD_isPressed(p, btn)		(((p)->is_pressed) & (btn))
+// #define PAD_justRepeated(p, btn)	(((p)->just_repeated) & (btn))
 
 
 // 内部函数声明
@@ -33,49 +33,64 @@ void SysUI_Quit(void) {
     // 目前没有动态分配的内存需要释放
 }
 
-bool SysUI_Update(PAD_Context* pad) {
+bool SysUI_Update(void) {
+    LOG_note(LOG_REALTIME, "[SysUI] SysUI_Update() CALLED.\n");
     uint32_t now = SDL_GetTicks();
-    static int was_muted = -1; 
+    SysUI_OverlayType last_overlay_state = g_sysui_ctx.active_overlay;
 
-    if (was_muted == -1 && InitializedSettings()) {
-        was_muted = GetMute();
-    }
-    
+    // 优先处理静音状态变化，因为它是一个独立的事件
+    static int was_muted = -1;
+    if (was_muted == -1 && InitializedSettings()) was_muted = GetMute();
     if (InitializedSettings()) {
         int muted = GetMute();
         if (muted != was_muted) {
             was_muted = muted;
             g_sysui_ctx.active_overlay = SYSUI_OVERLAY_VOLUME;
             g_sysui_ctx.overlay_display_start_time = now;
-            return true; 
+            // 因为这是一个瞬时事件，我们直接返回，下一帧再处理按键
+            return true;
         }
     }
 
-    SysUI_OverlayType last_overlay_state = g_sysui_ctx.active_overlay;
-    bool setting_adjusted = false;
+    // --- 全新的、正确的核心逻辑 ---
 
-    if (PAD_justRepeated(pad, BTN_MOD_PLUS) || PAD_justRepeated(pad, BTN_MOD_MINUS)) {
-        setting_adjusted = true; 
+    // 1. 检查当前是否有功能键被按住
+    bool brightness_mod_pressed = PAD_isPressed(BTN_MOD_BRIGHTNESS);
+    bool colortemp_mod_pressed = PAD_isPressed(BTN_MOD_COLORTEMP);
+    
+    // 2. 检查是否有调节键被按下
+    bool setting_adjusted = PAD_justRepeated(BTN_MOD_PLUS) || PAD_justRepeated(BTN_MOD_MINUS);
 
-        // <<< 核心修正：简化判断逻辑，确保优先级正确 >>>
-        if (PAD_isPressed(pad, BTN_MOD_BRIGHTNESS)) {
+    // 3. 决定是否要显示或保持显示UI浮层
+    //    条件：一个功能键正被按住，或者一个调节键刚刚被按下
+    if (brightness_mod_pressed || colortemp_mod_pressed || setting_adjusted) {
+        
+        // 只要有相关操作，就重置UI消失的计时器
+        g_sysui_ctx.overlay_display_start_time = now;
+
+        // 根据被按下的功能键，确定要显示的浮层类型
+        if (brightness_mod_pressed) {
             g_sysui_ctx.active_overlay = SYSUI_OVERLAY_BRIGHTNESS;
-        } else if (PAD_isPressed(pad, BTN_MOD_COLORTEMP)) {
+        } else if (colortemp_mod_pressed) {
             g_sysui_ctx.active_overlay = SYSUI_OVERLAY_COLORTEMP;
         } else {
+            // 如果只有调节键被按下（没有特定的功能键），则默认为是音量调节
             g_sysui_ctx.active_overlay = SYSUI_OVERLAY_VOLUME;
         }
-    }
 
-    if (g_sysui_ctx.active_overlay != SYSUI_OVERLAY_NONE) {
-        if (setting_adjusted) {
-             g_sysui_ctx.overlay_display_start_time = now;
-        }
-        else if (now - g_sysui_ctx.overlay_display_start_time > OVERLAY_TIMEOUT_MS) {
-            g_sysui_ctx.active_overlay = SYSUI_OVERLAY_NONE;
+    } else {
+        // 如果没有任何相关按键操作，检查当前显示的浮层是否应该超时消失
+        if (g_sysui_ctx.active_overlay != SYSUI_OVERLAY_NONE) {
+            if (now - g_sysui_ctx.overlay_display_start_time > OVERLAY_TIMEOUT_MS) {
+                g_sysui_ctx.active_overlay = SYSUI_OVERLAY_NONE;
+            }
         }
     }
-    
+    // --- 调试探针 #B：SysUI_Update 函数出口状态 ---
+    if (g_sysui_ctx.active_overlay != last_overlay_state) {
+        LOG_note(LOG_REALTIME, "[SysUI] Overlay state CHANGED from %d to %d\n", last_overlay_state, g_sysui_ctx.active_overlay);
+    }
+    // 4. 如果浮层状态有任何变化，或浮层仍处于激活状态，返回 true 以便上层重绘界面
     if (g_sysui_ctx.active_overlay != SYSUI_OVERLAY_NONE || last_overlay_state != g_sysui_ctx.active_overlay) {
         return true;
     }
@@ -127,6 +142,9 @@ static void SysUI_RenderTopBar(void) {
     int ow = 0;
     int show_setting_flag = 0;
 
+    // --- 调试探针 #C：SysUI_RenderTopBar 函数入口状态 ---
+    LOG_note(LOG_REALTIME, "[SysUI] SysUI_RenderTopBar() CALLED. Active overlay is %d\n", g_sysui_ctx.active_overlay);
+
     if (g_sysui_ctx.active_overlay != SYSUI_OVERLAY_NONE) {
         switch(g_sysui_ctx.active_overlay) {
             case SYSUI_OVERLAY_BRIGHTNESS: show_setting_flag = 1; break;
@@ -134,6 +152,8 @@ static void SysUI_RenderTopBar(void) {
             case SYSUI_OVERLAY_COLORTEMP:  show_setting_flag = 3; break;
             default: break;
         }
+        // --- 调试探针 #D：准备调用 GFX_blitHardwareGroup ---
+        LOG_note(LOG_REALTIME, "[SysUI] Preparing to call GFX_blitHardwareGroup with show_setting_flag = %d\n", show_setting_flag);
         ow = GFX_blitHardwareGroup(screen, show_setting_flag);
     } else {
         ow = GFX_blitHardwareGroup(screen, 0); 

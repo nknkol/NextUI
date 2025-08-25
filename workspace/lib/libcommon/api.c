@@ -1692,6 +1692,160 @@ void GFX_blitBatteryAtPosition(SDL_Surface* dst, int x, int y) {
 	}
 }
 
+// int GFX_blitHardwareGroup(SDL_Surface* dst, int show_setting) {
+// 	int ox;
+// 	int oy;
+// 	int ow = 0;
+	
+// 	int setting_value;
+// 	int setting_min;
+// 	int setting_max;
+// 	printf("DEBUG: GFX_blitHardwareGroup() CALLED. Received show_setting = %d\n", show_setting);
+// 	if (show_setting && !GetHDMI()) {
+// 		ow = SCALE1(PILL_SIZE + SETTINGS_WIDTH + 10 + 4);
+// 		ox = dst->w - SCALE1(PADDING) - ow;
+// 		oy = SCALE1(PADDING);
+// 		GFX_blitPillColor(ASSET_WHITE_PILL, dst, &(SDL_Rect){
+// 			ox,
+// 			oy,
+// 			ow,
+// 			SCALE1(PILL_SIZE)
+// 		},THEME_COLOR2, RGB_WHITE);
+		
+// 		if (show_setting==1) {
+// 			setting_value = GetBrightness();
+// 			setting_min = BRIGHTNESS_MIN;
+// 			setting_max = BRIGHTNESS_MAX;
+// 		}
+// 		else if (show_setting==3) {
+// 			setting_value = GetColortemp();
+// 			setting_min = COLORTEMP_MIN;
+// 			setting_max = COLORTEMP_MAX;
+// 		}
+// 		else {
+// 			setting_value = GetVolume();
+// 			setting_min = VOLUME_MIN;
+// 			setting_max = VOLUME_MAX;
+// 		}
+		
+// 		int asset = show_setting==3?ASSET_COLORTEMP:show_setting==1?ASSET_BRIGHTNESS:(setting_value>0?ASSET_VOLUME:ASSET_VOLUME_MUTE);
+// 		SDL_Rect asset_rect;
+// 		GFX_assetRect(asset, &asset_rect);
+// 		int ax = ox + (SCALE1(PILL_SIZE) - asset_rect.w) / 2;
+// 		int ay = oy + (SCALE1(PILL_SIZE) - asset_rect.h) / 2;
+// 		GFX_blitAssetColor(asset, NULL, dst, &(SDL_Rect){ax, ay}, THEME_COLOR6_255);
+
+// 		ox += SCALE1(PILL_SIZE);
+// 		oy += SCALE1((PILL_SIZE - SETTINGS_SIZE) / 2);
+// 		GFX_blitPill(gfx.mode==MODE_MAIN ? ASSET_BAR_BG : ASSET_BAR_BG_MENU, dst, &(SDL_Rect){
+// 			ox,
+// 			oy,
+// 			SCALE1(SETTINGS_WIDTH),
+// 			SCALE1(SETTINGS_SIZE)
+// 		});
+		
+// 		float percent = ((float)(setting_value-setting_min) / (setting_max-setting_min));
+// 		if (show_setting==1 || show_setting==3 || setting_value>0) {
+// 			GFX_blitPillDark(ASSET_BAR, dst, &(SDL_Rect){
+// 				ox,
+// 				oy,
+// 				SCALE1(SETTINGS_WIDTH) * percent,
+// 				SCALE1(SETTINGS_SIZE)
+// 			});
+// 		}
+// 	}
+// 	else {
+// 		ConnectionStrength strength = PLAT_connectionStrength();
+// 		int show_wifi = strength > SIGNAL_STRENGTH_OFF;
+// 		bool show_clock = CFG_getShowClock();
+// 		SDL_Rect battery_rect = asset_rects[ASSET_BATTERY];
+		
+// 		if (!show_wifi && !show_clock) {
+// 			ow = SCALE1(PILL_SIZE);
+// 			ox = dst->w - SCALE1(PADDING) - ow;
+// 			oy = SCALE1(PADDING);
+			
+// 			GFX_blitPillColor(ASSET_WHITE_PILL, dst, &(SDL_Rect){
+// 				ox,
+// 				oy,
+// 				ow,
+// 				SCALE1(PILL_SIZE)
+// 			}, THEME_COLOR2, RGB_WHITE);
+			
+// 			int battery_x = ox + (SCALE1(PILL_SIZE) - (battery_rect.w + FIXED_SCALE)) / 2;
+// 			int battery_y = oy + (SCALE1(PILL_SIZE) - battery_rect.h) / 2;
+			
+// 			GFX_blitBatteryAtPosition(dst, battery_x, battery_y);
+// 		}
+// 		else {
+// 			ow = SCALE1(BUTTON_MARGIN);
+			
+// 			if (show_wifi) {
+// 				SDL_Rect wifi_rect = asset_rects[ASSET_WIFI];
+// 				ow += wifi_rect.w + SCALE1(BUTTON_MARGIN);
+// 			}
+			
+// 			ow += battery_rect.w + SCALE1(BUTTON_MARGIN);
+			
+// 			SDL_Surface *clock = NULL;
+// 			if (show_clock) {
+// 				int clock_width = 0;
+// 				char timeString[12];
+// 				time_t t = time(NULL);
+// 				struct tm tm = *localtime(&t);
+// 				if(CFG_getClock24H())
+// 					strftime(timeString, 12, "%R", &tm);
+// 				else 
+// 					strftime(timeString, 12, "%-I:%M %p", &tm);
+// 				char display_name[12];
+// 				clock_width = GFX_getTextWidth(font.small, timeString, display_name, SCALE1(PILL_SIZE), 0);
+// 				clock = TTF_RenderUTF8_Blended(font.small, display_name, uintToColour(THEME_COLOR6_255));
+// 				ow += clock_width + SCALE1(BUTTON_MARGIN);
+// 			}
+			
+// 			ox = dst->w - SCALE1(PADDING) - ow;
+// 			oy = SCALE1(PADDING);
+// 			GFX_blitPillColor(ASSET_WHITE_PILL, dst, &(SDL_Rect){
+// 				ox,
+// 				oy,
+// 				ow,
+// 				SCALE1(PILL_SIZE)
+// 			}, THEME_COLOR2, RGB_WHITE);
+			
+// 			ox += SCALE1(BUTTON_MARGIN);
+			
+// 			if (show_wifi) {
+//                 int asset = 
+// 				strength == SIGNAL_STRENGTH_HIGH ? ASSET_WIFI : 
+// 				strength == SIGNAL_STRENGTH_MED ? ASSET_WIFI_MED : 
+// 				strength == SIGNAL_STRENGTH_LOW	? ASSET_WIFI_LOW : 
+// 					ASSET_WIFI_OFF; // this should use ASSET_WIFI and be greyed out
+// 			    SDL_Rect wifi_rect = asset_rects[asset];
+// 				int x = ox;
+// 				int y = oy + (SCALE1(PILL_SIZE) - wifi_rect.h) / 2;
+				
+// 				GFX_blitAssetColor(asset, NULL, dst, &(SDL_Rect){x,y}, THEME_COLOR6);
+// 				ox += wifi_rect.w + SCALE1(BUTTON_MARGIN);
+// 			}
+			
+// 			int battery_x = ox;
+// 			int battery_y = oy + (SCALE1(PILL_SIZE) - battery_rect.h) / 2;
+			
+// 			GFX_blitBatteryAtPosition(dst, battery_x, battery_y);
+// 			ox += battery_rect.w + SCALE1(BUTTON_MARGIN);
+			
+// 			if(show_clock && clock) {			
+// 				int x = ox;
+// 				int y = oy + (SCALE1(PILL_SIZE) - clock->h) / 2;
+// 				SDL_BlitSurface(clock, NULL, dst, &(SDL_Rect){x,y});
+// 				SDL_FreeSurface(clock);
+// 			}
+// 		}
+// 	}
+	
+// 	return ow;
+// }
+
 int GFX_blitHardwareGroup(SDL_Surface* dst, int show_setting) {
 	int ox;
 	int oy;
@@ -1700,8 +1854,18 @@ int GFX_blitHardwareGroup(SDL_Surface* dst, int show_setting) {
 	int setting_value;
 	int setting_min;
 	int setting_max;
-	
-	if (show_setting && !GetHDMI()) {
+
+    // --- 调试探针 #1：函数入口 ---
+    LOG_note(LOG_REALTIME, "GFX_blitHardwareGroup() CALLED. Received show_setting = %d\n", show_setting);
+    
+    int hdmi_status = GetHDMI();
+    // --- 调试探针 #2：HDMI 状态 ---
+    LOG_note(LOG_REALTIME, "GetHDMI() returned: %d. Therefore !GetHDMI() is: %d\n", hdmi_status, !hdmi_status);
+
+	if (show_setting && !hdmi_status) {
+        // --- 调试探针 #3：条件判断成功 ---
+        LOG_note(LOG_REALTIME, "CONDITION PASSED. Entering block to draw settings UI...\n");
+
 		ow = SCALE1(PILL_SIZE + SETTINGS_WIDTH + 10 + 4);
 		ox = dst->w - SCALE1(PADDING) - ow;
 		oy = SCALE1(PADDING);
@@ -1755,6 +1919,9 @@ int GFX_blitHardwareGroup(SDL_Surface* dst, int show_setting) {
 		}
 	}
 	else {
+        // --- 调试探针 #4：条件判断失败 ---
+        LOG_note(LOG_REALTIME, "CONDITION FAILED. Entering 'else' block to draw normal status.\n");
+
 		ConnectionStrength strength = PLAT_connectionStrength();
 		int show_wifi = strength > SIGNAL_STRENGTH_OFF;
 		bool show_clock = CFG_getShowClock();
@@ -1819,7 +1986,7 @@ int GFX_blitHardwareGroup(SDL_Surface* dst, int show_setting) {
 				strength == SIGNAL_STRENGTH_HIGH ? ASSET_WIFI : 
 				strength == SIGNAL_STRENGTH_MED ? ASSET_WIFI_MED : 
 				strength == SIGNAL_STRENGTH_LOW	? ASSET_WIFI_LOW : 
-					ASSET_WIFI_OFF; // this should use ASSET_WIFI and be greyed out
+					ASSET_WIFI_OFF;
 			    SDL_Rect wifi_rect = asset_rects[asset];
 				int x = ox;
 				int y = oy + (SCALE1(PILL_SIZE) - wifi_rect.h) / 2;

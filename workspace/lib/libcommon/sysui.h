@@ -40,7 +40,7 @@ typedef struct {
 void SysUI_Init(SDL_Surface* screen, GFX_Fonts* fonts);
 void SysUI_Quit(void);
 void SysUI_Render(void);
-bool SysUI_Update(PAD_Context* pad);
+bool SysUI_Update(void);
 void SysUI_SetTitle(const char* title);
 void SysUI_SetFullscreen(bool fullscreen);
 void SysUI_SetBottomHints(const char* l_btn, const char* l_hint, const char* r_btn1, const char* r_hint1, const char* r_btn2, const char* r_hint2);
