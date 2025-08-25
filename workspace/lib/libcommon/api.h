@@ -398,8 +398,9 @@ typedef struct PAD_Context {
 } PAD_Context;
 extern PAD_Context pad;
 
-#define PAD_REPEAT_DELAY	250
-#define PAD_REPEAT_INTERVAL 33
+#define PAD_REPEAT_DELAY	300
+#define PAD_REPEAT_INTERVAL 100
+
 
 #define PAD_init PLAT_initInput
 #define PAD_quit PLAT_quitInput

@@ -13,6 +13,7 @@ endif
 .PHONY: all 
 
 all:
+	cd ./keymon && make
 	cd ./batmon && make
 	cd ./gametimectl && make
 	cd ./nextval && make
@@ -22,6 +23,7 @@ all:
 	# cd ./compositor && make 
 
 clean:
+	cd ./keymon && make clean
 	cd ./batmon && make clean
 	cd ./gametimectl && make clean
 	cd ./nextval && make clean

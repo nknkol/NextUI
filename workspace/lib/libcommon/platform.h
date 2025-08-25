@@ -92,8 +92,8 @@ extern int is_brick;
 
 #define JOY_MENU		8
 #define JOY_POWER		102
-#define JOY_PLUS		6
-#define JOY_MINUS		7
+#define JOY_PLUS		(is_brick?14:128)
+#define JOY_MINUS		(is_brick?13:129)
 
 ///////////////////////////////
 
