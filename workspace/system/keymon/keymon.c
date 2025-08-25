@@ -22,9 +22,9 @@
 #define COLORTEMP_MIN 	0
 #define COLORTEMP_MAX 	40
 
-#define CODE_MENU0		7 //色温
+#define CODE_MENU0		314
 #define CODE_MENU1		315
-#define CODE_MENU2		6 //亮度
+#define CODE_MENU2		316
 #define CODE_PLUS		115
 #define CODE_MINUS		114
 #define CODE_MUTE		1
