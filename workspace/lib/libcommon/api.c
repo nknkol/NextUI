@@ -3188,13 +3188,31 @@ void PWR_update(int* _dirty, int* _show_setting, PWR_callback_t before_sleep, PW
 	
 	// TODO: only delay hiding setting changes if that setting didn't require a modifier button be held, otherwise release as soon as modifier is released
 	
-	int delay_settings = BTN_MOD_BRIGHTNESS==BTN_MENU; // when both volume and brighness require a modifier hide settings as soon as it is released
+	// int delay_settings = BTN_MOD_BRIGHTNESS==BTN_MENU; // when both volume and brighness require a modifier hide settings as soon as it is released
+	// #define SETTING_DELAY 500
+	// if (show_setting && (now-setting_shown_at>=SETTING_DELAY || !delay_settings) && !PAD_isPressed(BTN_MOD_VOLUME) && !PAD_isPressed(BTN_MOD_BRIGHTNESS) && !PAD_isPressed(BTN_MOD_COLORTEMP)) {
+	// 	show_setting = 0;
+	// 	dirty = 1;
+	// }
 	#define SETTING_DELAY 500
-	if (show_setting && (now-setting_shown_at>=SETTING_DELAY || !delay_settings) && !PAD_isPressed(BTN_MOD_VOLUME) && !PAD_isPressed(BTN_MOD_BRIGHTNESS) && !PAD_isPressed(BTN_MOD_COLORTEMP)) {
-		show_setting = 0;
-		dirty = 1;
+	// 检查是否应该隐藏UI
+	if (show_setting && !PAD_isPressed(BTN_MOD_VOLUME) && !PAD_isPressed(BTN_MOD_BRIGHTNESS) && !PAD_isPressed(BTN_MOD_COLORTEMP)) {
+		int should_hide = 0;
+
+		// 如果是亮度和色温 (组合键), 则立即隐藏
+		if (show_setting == 1 || show_setting == 3) {
+			should_hide = 1;
+		}
+		// 如果是音量 (单键), 则延迟隐藏
+		else if (show_setting == 2 && now - setting_shown_at >= SETTING_DELAY) {
+			should_hide = 1;
+		}
+
+		if (should_hide) {
+			show_setting = 0;
+			dirty = 1;
+		}
 	}
-	
 	if (!show_setting && !PAD_isPressed(BTN_MOD_VOLUME) && !PAD_isPressed(BTN_MOD_BRIGHTNESS) && !PAD_isPressed(BTN_MOD_COLORTEMP)) {
 		mod_unpressed_at = now; // this feels backwards but is correct
 	}
@@ -3202,8 +3220,10 @@ void PWR_update(int* _dirty, int* _show_setting, PWR_callback_t before_sleep, PW
 	#define MOD_DELAY 250
 	if (
 		(
-			(PAD_isPressed(BTN_MOD_VOLUME) || PAD_isPressed(BTN_MOD_BRIGHTNESS) || PAD_isPressed(BTN_MOD_COLORTEMP)) && 
-			(!delay_settings || now-mod_unpressed_at>=MOD_DELAY)
+			// (PAD_isPressed(BTN_MOD_VOLUME) || PAD_isPressed(BTN_MOD_BRIGHTNESS) || PAD_isPressed(BTN_MOD_COLORTEMP)) && 
+			// (!delay_settings || now-mod_unpressed_at>=MOD_DELAY)
+		    (PAD_isPressed(BTN_MOD_VOLUME) || PAD_isPressed(BTN_MOD_BRIGHTNESS) || PAD_isPressed(BTN_MOD_COLORTEMP)) && 
+	        (now-mod_unpressed_at>=MOD_DELAY)
 		) || 
 		((!BTN_MOD_VOLUME || !BTN_MOD_BRIGHTNESS || !BTN_MOD_COLORTEMP) && (PAD_justRepeated(BTN_MOD_PLUS) || PAD_justRepeated(BTN_MOD_MINUS)))
 	) {

@@ -74,9 +74,12 @@ extern int is_brick;
 #define JOY_LEFT		JOY_NA
 #define JOY_RIGHT		JOY_NA
 
-#define JOY_SELECT		6
-#define JOY_START		7
-
+// #define JOY_SELECT		6
+// #define JOY_START		7
+#define JOY_SELECT		(is_brick?9:6)    // brick: 物理L3→SELECT功能
+#define JOY_START		(is_brick?10:7)   // brick: 物理R3→START功能
+#define JOY_L3			(is_brick?6:JOY_NA)   // brick: 物理SELECT→L3功能  
+#define JOY_R3			(is_brick?7:JOY_NA)   // brick: 物理START→R3功能
 // TODO: these ended up swapped in the first public release of stock :sob:
 #define JOY_A			1
 #define JOY_B			0
@@ -87,8 +90,8 @@ extern int is_brick;
 #define JOY_R1			5
 #define JOY_L2			JOY_NA
 #define JOY_R2			JOY_NA
-#define JOY_L3			(is_brick?9:JOY_NA)
-#define JOY_R3			(is_brick?10:JOY_NA)
+// #define JOY_L3			(is_brick?9:JOY_NA)
+// #define JOY_R3			(is_brick?10:JOY_NA)
 
 #define JOY_MENU		8
 #define JOY_POWER		102
@@ -111,8 +114,10 @@ extern int is_brick;
 #define BTN_SLEEP 			BTN_POWER
 #define BTN_WAKE 			BTN_POWER
 #define BTN_MOD_VOLUME 		BTN_NONE
-#define BTN_MOD_BRIGHTNESS 	BTN_MENU
-#define BTN_MOD_COLORTEMP 	BTN_SELECT
+// #define BTN_MOD_BRIGHTNESS 	BTN_MENU
+// #define BTN_MOD_COLORTEMP 	BTN_SELECT
+#define BTN_MOD_BRIGHTNESS 	BTN_L3
+#define BTN_MOD_COLORTEMP 	BTN_R3
 #define BTN_MOD_PLUS 		BTN_PLUS
 #define BTN_MOD_MINUS 		BTN_MINUS
 

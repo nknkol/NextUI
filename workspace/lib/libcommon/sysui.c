@@ -6,7 +6,7 @@
 
 // 全局唯一的 SysUI 上下文实例
 static SysUI_Context g_sysui_ctx;
-#define OVERLAY_TIMEOUT_MS 1500
+#define OVERLAY_TIMEOUT_MS 500
 // #undef PAD_isPressed
 // #undef PAD_justRepeated
 // #define PAD_isPressed(p, btn)		(((p)->is_pressed) & (btn))
@@ -79,10 +79,17 @@ bool SysUI_Update(void) {
         }
 
     } else {
-        // 如果没有任何相关按键操作，检查当前显示的浮层是否应该超时消失
+        // 如果没有任何相关按键操作，根据浮层类型决定隐藏策略
         if (g_sysui_ctx.active_overlay != SYSUI_OVERLAY_NONE) {
-            if (now - g_sysui_ctx.overlay_display_start_time > OVERLAY_TIMEOUT_MS) {
+            // 对于亮度和色温（组合键操作），立即隐藏
+            if (g_sysui_ctx.active_overlay == SYSUI_OVERLAY_BRIGHTNESS || g_sysui_ctx.active_overlay == SYSUI_OVERLAY_COLORTEMP) {
                 g_sysui_ctx.active_overlay = SYSUI_OVERLAY_NONE;
+            }
+            // 对于其他浮层（如音量），使用超时延迟隐藏
+            else {
+                if (now - g_sysui_ctx.overlay_display_start_time > OVERLAY_TIMEOUT_MS) {
+                    g_sysui_ctx.active_overlay = SYSUI_OVERLAY_NONE;
+                }
             }
         }
     }
@@ -90,12 +97,13 @@ bool SysUI_Update(void) {
     if (g_sysui_ctx.active_overlay != last_overlay_state) {
         LOG_note(LOG_REALTIME, "[SysUI] Overlay state CHANGED from %d to %d\n", last_overlay_state, g_sysui_ctx.active_overlay);
     }
-    // 4. 如果浮层状态有任何变化，或浮层仍处于激活状态，返回 true 以便上层重绘界面
-    if (g_sysui_ctx.active_overlay != SYSUI_OVERLAY_NONE || last_overlay_state != g_sysui_ctx.active_overlay) {
-        return true;
-    }
+    
+    bool is_interacting_with_mods = PAD_isPressed(BTN_MOD_BRIGHTNESS) || PAD_isPressed(BTN_MOD_COLORTEMP);
+    bool state_just_changed = (last_overlay_state != g_sysui_ctx.active_overlay);
 
-    return false;
+    // `setting_adjusted` 在函数开头已经计算好了，这里直接使用。
+    // 它代表了用户是否正在按 +/- 来调整数值。
+    return is_interacting_with_mods || setting_adjusted || state_just_changed;
 }
 
 void SysUI_Render(void) {

@@ -38,7 +38,6 @@ LIBPRODUCT= build/$(PLATFORM)/libfb_$(TARGET).so
 .PHONY: all clean
 
 all:
-	apt-get install libdrm-dev
 	mkdir -p build/$(PLATFORM)
 	$(CC) $(SOURCE) -o $(PRODUCT) $(CFLAGS) $(LDFLAGS)
 
