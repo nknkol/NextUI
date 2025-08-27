@@ -31,6 +31,8 @@ static int plugin_init(void* main_screen) {
     SysUI_SetBottomHints("SELECT", "24H", "A", "SET", "B", "BACK");
     SysUI_SetFullscreen(false);
 
+    PWR_init();
+
     return 0;
 }
 
@@ -111,19 +113,22 @@ static int plugin_run() {
 	
 	int option_count = 7;
 	int dirty = 1;
-	bool input_handled_by_sysui = false; // 新增：用于标记SysUI是否处理了输入
+	bool input_handled_by_sysui = false; 
+    
+    int show_setting_dummy = 0; 
     
 	while(!quit_plugin) {
 		uint32_t now = SDL_GetTicks();
 		PAD_poll();
         
-		// 首先让SysUI处理系统级输入（如亮度/音量快捷键）
+
         input_handled_by_sysui = SysUI_Update();
         if (input_handled_by_sysui) {
-			dirty = 1; // 如果SysUI有活动（如显示浮层），则需要重绘
+			dirty = 1; 
 		}
 
-		// 仅当SysUI没有处理输入时，才执行插件自身的按键逻辑
+        PWR_update(&dirty, &show_setting_dummy, NULL, NULL);
+
 		if (!input_handled_by_sysui) {
 			if (PAD_justRepeated(BTN_UP)) { dirty = 1; switch(select_cursor) { case CURSOR_YEAR: year_selected++; break; case CURSOR_MONTH: month_selected++; break; case CURSOR_DAY: day_selected++; break; case CURSOR_HOUR: hour_selected++; break; case CURSOR_MINUTE: minute_selected++; break; case CURSOR_SECOND: seconds_selected++; break; case CURSOR_AMPM: hour_selected += 12; break; } }
 			else if (PAD_justRepeated(BTN_DOWN)) { dirty = 1; switch(select_cursor) { case CURSOR_YEAR: year_selected--; break; case CURSOR_MONTH: month_selected--; break; case CURSOR_DAY: day_selected--; break; case CURSOR_HOUR: hour_selected--; break; case CURSOR_MINUTE: minute_selected--; break; case CURSOR_SECOND: seconds_selected--; break; case CURSOR_AMPM: hour_selected -= 12; break; } }
@@ -175,7 +180,6 @@ static int plugin_run() {
             if (select_cursor!=CURSOR_YEAR) { x += SCALE1(50); x += (select_cursor - 1) * SCALE1(30); }
             blitBar(x,y, (select_cursor==CURSOR_YEAR ? SCALE1(40) : (select_cursor==CURSOR_AMPM ? ampm_w : SCALE1(20))));
         
-            // 渲染SysUI组件（标题、底部栏、以及亮度/音量等浮层）
             SysUI_Render();
 
             GFX_flip(screen);
@@ -189,11 +193,12 @@ static int plugin_run() {
 }
 
 static void plugin_quit(void) {
+    PWR_quit();
     SysUI_Quit();
 }
 
 static NextUI_Plugin clock_plugin = {
-    .name = "Clock_plugin",
+    .name = "Clock",
     .init = plugin_init,
     .run = plugin_run,
     .quit = plugin_quit,

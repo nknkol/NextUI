@@ -170,9 +170,9 @@ cores:
 tools:
 	cp $(SRC_OTHER_DIR)/NextCommander/output/NextCommander $(EXTRAS_TOOLS)/Files.pak/
 	cp -r $(SRC_OTHER_DIR)/NextCommander/res $(EXTRAS_TOOLS)/Files.pak/
-	cp $(SRC_TOOL_DIR)/clock/build/$(PLATFORM)/clock.elf $(EXTRAS_TOOLS)/Clock.pak/
+	# cp $(SRC_TOOL_DIR)/clock/build/$(PLATFORM)/clock.elf $(EXTRAS_TOOLS)/Clock.pak/
 	cp $(SRC_TOOL_DIR)/minput/build/$(PLATFORM)/minput.elf $(EXTRAS_TOOLS)/Input.pak/
-	cp $(SRC_TOOL_DIR)/battery/build/$(PLATFORM)/battery.elf $(EXTRAS_TOOLS)/Battery.pak/
+	# cp $(SRC_TOOL_DIR)/battery/build/$(PLATFORM)/battery.elf $(EXTRAS_TOOLS)/Battery.pak/
 	cp $(SRC_TOOL_DIR)/gametime/build/$(PLATFORM)/gametime.elf $(EXTRAS_TOOLS)/Game\ Tracker.pak/
 	cp $(SRC_TOOL_DIR)/settings/build/$(PLATFORM)/settings.elf $(EXTRAS_TOOLS)/Settings.pak/
 	cp $(SRC_TOOL_DIR)/ledcontrol/build/$(PLATFORM)/ledcontrol.elf $(EXTRAS_TOOLS)/LedControl.pak/
@@ -184,21 +184,34 @@ tools:
 
 plugins:
 	cp $(SRC_PLUGINS_DIR)/clock/build/$(PLATFORM)/clock.so $(PLUGINS_DIR)/
+	cp $(SRC_PLUGINS_DIR)/battery/build/$(PLATFORM)/battery.so $(PLUGINS_DIR)/
 
 # --- 主要工作流程目标 ---
-
+# =============================================================================
+# 创建模版（排除指定）
+# =============================================================================
+SRC_DIR := ./skeleton
+BUILD_DIR := ./build
+# 将所有要排除的模式定义为一个以空格分隔的列表
+EXCLUDE_PATTERNS := \
+    /EXTRAS/Tools/Clock.pak \
+	/EXTRAS/Tools/Battery.pak
+# 使用 foreach 函数，为列表中的每一项生成一个 --exclude='...' 参数
+EXCLUDE_ARGS := $(foreach pattern,$(EXCLUDE_PATTERNS),--exclude='$(pattern)')
 setup: name
 	# 准备一个全新的构建目录
 	@echo "正在为发布版本 $(RELEASE_NAME) 进行初始化..."
 	rm -rf $(BUILD_DIR)
 	mkdir -p $(RELEASE_DIR)
-	cp -R ./skeleton $(BUILD_DIR)
+	# cp -R ./skeleton $(BUILD_DIR)
+	rsync -av $(EXCLUDE_ARGS) $(SRC_DIR)/ $(BUILD_DIR)/
 	# 清理占位符和元数据文件
 	find $(BUILD_DIR) -type f \( -name '.keep' -o -name '*.meta' \) -delete
 	echo $(BUILD_HASH) > $(SRC_OTHER_DIR)/readmes/hash.txt
 	# 复制 readme 文件以供后续处理
 	cp ./skeleton/BASE/README.txt $(SRC_OTHER_DIR)/readmes/BASE-in.txt
 	cp ./skeleton/EXTRAS/README.txt $(SRC_OTHER_DIR)/readmes/EXTRAS-in.txt
+# =============================================================================
 
 special: cpfile
 	# Miyoomini 系列设备的特殊文件结构设置

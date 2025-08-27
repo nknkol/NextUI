@@ -13,9 +13,9 @@ endif
 .PHONY: all 
 
 all:
-	cd ./battery && make
+	# cd ./battery && make
 	cd ./bootlogo && make
-	cd ./clock && make
+	# cd ./clock && make
 	cd ./gametime && make
 	cd ./ledcontrol && make
 	cd ./minput && make
