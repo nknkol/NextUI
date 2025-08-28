@@ -16,7 +16,7 @@ all:
 	# cd ./battery && make
 	cd ./bootlogo && make
 	# cd ./clock && make
-	cd ./gametime && make
+	# cd ./gametime && make
 	cd ./ledcontrol && make
 	cd ./minput && make
 	cd ./settings && make
