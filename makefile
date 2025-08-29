@@ -175,7 +175,7 @@ tools:
 	# cp $(SRC_TOOL_DIR)/battery/build/$(PLATFORM)/battery.elf $(EXTRAS_TOOLS)/Battery.pak/
 	# cp $(SRC_TOOL_DIR)/gametime/build/$(PLATFORM)/gametime.elf $(EXTRAS_TOOLS)/Game\ Tracker.pak/
 	# cp $(SRC_TOOL_DIR)/settings/build/$(PLATFORM)/settings.elf $(EXTRAS_TOOLS)/Settings.pak/
-	cp $(SRC_TOOL_DIR)/ledcontrol/build/$(PLATFORM)/ledcontrol.elf $(EXTRAS_TOOLS)/LedControl.pak/
+	# cp $(SRC_TOOL_DIR)/ledcontrol/build/$(PLATFORM)/ledcontrol.elf $(EXTRAS_TOOLS)/LedControl.pak/
 	cp $(SRC_TOOL_DIR)/bootlogo/build/$(PLATFORM)/bootlogo.elf $(EXTRAS_TOOLS)/Bootlogo.pak/
 
 	# cp $(SRC_SYS_DIR)/compositor/build/$(PLATFORM)/compositor.elf $(EXTRAS_TOOLS)/Compositor.pak/
@@ -186,6 +186,8 @@ plugins:
 	cp $(SRC_PLUGINS_DIR)/clock/build/$(PLATFORM)/clock.so $(PLUGINS_DIR)/
 	cp $(SRC_PLUGINS_DIR)/battery/build/$(PLATFORM)/battery.so $(PLUGINS_DIR)/
 	cp $(SRC_PLUGINS_DIR)/gametime/build/$(PLATFORM)/gametime.so $(PLUGINS_DIR)/
+	cp $(SRC_PLUGINS_DIR)/appearance/build/$(PLATFORM)/appearance.so $(PLUGINS_DIR)/
+	cp $(SRC_PLUGINS_DIR)/ledcontrol/build/$(PLATFORM)/ledcontrol.so $(PLUGINS_DIR)/
 
 # --- 主要工作流程目标 ---
 # =============================================================================
@@ -197,7 +199,9 @@ BUILD_DIR := ./build
 EXCLUDE_PATTERNS := \
     /EXTRAS/Tools/Clock.pak \
 	/EXTRAS/Tools/Battery.pak \
-	/EXTRAS/Tools/Game\ Tracker.pak 
+	/EXTRAS/Tools/Game\ Tracker.pak \
+	/EXTRAS/Tools/Settings.pak \
+	/EXTRAS/Tools/LedControl.pak
 # 使用 foreach 函数，为列表中的每一项生成一个 --exclude='...' 参数
 EXCLUDE_ARGS := $(foreach pattern,$(EXCLUDE_PATTERNS),--exclude='$(pattern)')
 setup: name

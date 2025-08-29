@@ -34,7 +34,6 @@ void SysUI_Quit(void) {
 }
 
 bool SysUI_Update(void) {
-    LOG_note(LOG_REALTIME, "[SysUI] SysUI_Update() CALLED.\n");
     uint32_t now = SDL_GetTicks();
     SysUI_OverlayType last_overlay_state = g_sysui_ctx.active_overlay;
 
@@ -94,9 +93,9 @@ bool SysUI_Update(void) {
         }
     }
     // --- 调试探针 #B：SysUI_Update 函数出口状态 ---
-    if (g_sysui_ctx.active_overlay != last_overlay_state) {
-        LOG_note(LOG_REALTIME, "[SysUI] Overlay state CHANGED from %d to %d\n", last_overlay_state, g_sysui_ctx.active_overlay);
-    }
+    // if (g_sysui_ctx.active_overlay != last_overlay_state) {
+    //     LOG_note(LOG_REALTIME, "[SysUI] Overlay state CHANGED from %d to %d\n", last_overlay_state, g_sysui_ctx.active_overlay);
+    // }
     
     bool is_interacting_with_mods = PAD_isPressed(BTN_MOD_BRIGHTNESS) || PAD_isPressed(BTN_MOD_COLORTEMP);
     bool state_just_changed = (last_overlay_state != g_sysui_ctx.active_overlay);
@@ -151,7 +150,7 @@ static void SysUI_RenderTopBar(void) {
     int show_setting_flag = 0;
 
     // --- 调试探针 #C：SysUI_RenderTopBar 函数入口状态 ---
-    LOG_note(LOG_REALTIME, "[SysUI] SysUI_RenderTopBar() CALLED. Active overlay is %d\n", g_sysui_ctx.active_overlay);
+    // LOG_note(LOG_REALTIME, "[SysUI] SysUI_RenderTopBar() CALLED. Active overlay is %d\n", g_sysui_ctx.active_overlay);
 
     if (g_sysui_ctx.active_overlay != SYSUI_OVERLAY_NONE) {
         switch(g_sysui_ctx.active_overlay) {
@@ -161,7 +160,7 @@ static void SysUI_RenderTopBar(void) {
             default: break;
         }
         // --- 调试探针 #D：准备调用 GFX_blitHardwareGroup ---
-        LOG_note(LOG_REALTIME, "[SysUI] Preparing to call GFX_blitHardwareGroup with show_setting_flag = %d\n", show_setting_flag);
+        // LOG_note(LOG_REALTIME, "[SysUI] Preparing to call GFX_blitHardwareGroup with show_setting_flag = %d\n", show_setting_flag);
         ow = GFX_blitHardwareGroup(screen, show_setting_flag);
     } else {
         ow = GFX_blitHardwareGroup(screen, 0); 

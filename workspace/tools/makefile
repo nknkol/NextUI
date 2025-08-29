@@ -17,9 +17,9 @@ all:
 	cd ./bootlogo && make
 	# cd ./clock && make
 	# cd ./gametime && make
-	cd ./ledcontrol && make
+	# cd ./ledcontrol && make
 	cd ./minput && make
-	cd ./settings && make
+	# cd ./settings && make
 
 	# cd ./demo1_overlay && make 
 	# cd ./demo2_background && make

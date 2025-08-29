@@ -56,6 +56,16 @@ void PLUGINS_init(void) {
             PluginEntry* new_entry = (PluginEntry*)malloc(sizeof(PluginEntry));
             new_entry->path = strdup(full_path);
             new_entry->name = strdup(plugin_info->name);
+            
+            // --- 新增代码块开始 ---
+            if (plugin_info->display_path) {
+                new_entry->display_path = strdup(plugin_info->display_path);
+                 LOG_note(LOG_REALTIME, "PLUGINS_init: Plugin '%s' registered for path: %s\n", new_entry->name, new_entry->display_path);
+            } else {
+                new_entry->display_path = NULL; // 如果插件未指定路径，则为 NULL
+            }
+            // --- 新增代码块结束 ---
+
             new_entry->next = plugin_list_head;
             plugin_list_head = new_entry;
             plugins_found++;
@@ -73,6 +83,7 @@ void PLUGINS_quit(void) {
         PluginEntry* next = current->next;
         free(current->path);
         free(current->name);
+        free(current->display_path); // 新增：释放 display_path 内存
         free(current);
         current = next;
     }

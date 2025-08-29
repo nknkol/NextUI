@@ -497,10 +497,8 @@ int isConsoleDir(char* path) {
 
 Array* getEntries(char* path){
 	Array* entries = Array_new();
-	char tools_path[256];
-	snprintf(tools_path, sizeof(tools_path), "%s/Tools", SDCARD_PATH);
-	int is_tools_dir = exactMatch(path, tools_path);
 
+	// 步骤 1: 获取当前路径下的所有真实条目 (如 .pak 包)
 	if (isConsoleDir(path)) {
 		char collated_path[256];
 		strcpy(collated_path, path);
@@ -522,19 +520,75 @@ Array* getEntries(char* path){
 			closedir(dh);
 		}
 	}
-	else addEntries(entries, path);
+	else {
+		addEntries(entries, path);
+	}
 	
-	if (is_tools_dir) {
-        PluginEntry* current_plugin = PLUGINS_get();
-        while (current_plugin != NULL) {
+	// 步骤 2 & 3: 遍历插件，注入插件或创建虚拟文件夹
+	char default_tools_path[MAX_PATH];
+    snprintf(default_tools_path, sizeof(default_tools_path), "%s/Tools", SDCARD_PATH);
+	
+	// 用于跟踪已添加的虚拟目录，防止重复
+	Array* virtual_dirs_added = Array_new(); 
+
+    PluginEntry* current_plugin = PLUGINS_get();
+    while (current_plugin != NULL) {
+        const char* target_path = current_plugin->display_path ? current_plugin->display_path : default_tools_path;
+
+        // A. 检查插件是否应直接显示在当前目录
+        if (exactMatch(path, target_path)) {
             Entry* entry = Entry_new(current_plugin->path, ENTRY_PLUGIN);
             free(entry->name);
             entry->name = strdup(current_plugin->name);
-            Array_push(entries, entry); 
-            current_plugin = current_plugin->next;
+            Array_push(entries, entry);
         }
-	}
+        // B. 检查插件是否定义了一个虚拟子目录
+        else {
+			size_t path_len = strlen(path);
+			// 确保当前路径是目标路径的前缀，并且目标路径更长
+			if (strncmp(target_path, path, path_len) == 0 && target_path[path_len] == '/') {
+				const char* sub_path_start = target_path + path_len + 1;
+				const char* next_slash = strchr(sub_path_start, '/');
+				
+				char virtual_dir_name[256];
+				if (next_slash) { // 路径是多层级的，如 /Tools/Settings/Appearance
+					size_t dir_name_len = next_slash - sub_path_start;
+					strncpy(virtual_dir_name, sub_path_start, dir_name_len);
+					virtual_dir_name[dir_name_len] = '\0';
+				} else { // 路径只有一层，如 /Tools/Settings
+					strcpy(virtual_dir_name, sub_path_start);
+				}
+
+				// 检查是否已创建过这个虚拟目录
+				int already_added = 0;
+				for (int i = 0; i < virtual_dirs_added->count; i++) {
+					if (strcmp(virtual_dirs_added->items[i], virtual_dir_name) == 0) {
+						already_added = 1;
+						break;
+					}
+				}
+
+				if (!already_added) {
+					// 构造虚拟目录的完整路径
+					char virtual_dir_path[MAX_PATH];
+					snprintf(virtual_dir_path, sizeof(virtual_dir_path), "%s/%s", path, virtual_dir_name);
+					
+					// 创建并添加虚拟目录条目
+					Entry* dir_entry = Entry_new(virtual_dir_path, ENTRY_DIR);
+					Array_push(entries, dir_entry);
+
+					// 记录下来，防止重复添加
+					Array_push(virtual_dirs_added, strdup(virtual_dir_name));
+				}
+			}
+		}
+        current_plugin = current_plugin->next;
+    }
 	
+	// 释放用于跟踪的临时数组
+	StringArray_free(virtual_dirs_added);
+	
+	// 步骤 4: 排序所有条目
 	EntryArray_sort(entries);
 	return entries;
 }

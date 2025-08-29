@@ -393,6 +393,7 @@ static void plugin_quit(void) {
 
 static NextUI_Plugin gametime_plugin_export = {
     .name = "Game Time", // 插件的显示名称
+    .display_path = SDCARD_PATH "/Tools/Settings",
     .init = plugin_init,
     .run = plugin_run,
     .quit = plugin_quit,

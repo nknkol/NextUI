@@ -199,6 +199,7 @@ static void plugin_quit(void) {
 
 static NextUI_Plugin clock_plugin = {
     .name = "Clock",
+	.display_path = SDCARD_PATH "/Tools/Settings",
     .init = plugin_init,
     .run = plugin_run,
     .quit = plugin_quit,
