@@ -182,26 +182,23 @@ void Menu::updater()
                     // 保存当前选择
                     preserveUserSelection();
                     
-                    // 安全地清理旧items
-                    std::vector<AbstractMenuItem*> oldItems;
-                    for (auto item : items) {
-                        if (item != toggleItem && item != diagItem) {
-                            oldItems.push_back(item);
-                        }
-                    }
-                    
-                    items.clear();
-                    items.push_back(toggleItem);
-                    items.push_back(diagItem);
-                    
-                    // 在锁外删除旧items以避免长时间持锁
-                    w.unlock();
-                    for (auto item : oldItems) {
+                    // 清理并删除旧的网络列表项
+                    std::vector<AbstractMenuItem*> toDelete;
+                    items.erase(std::remove_if(items.begin(), items.end(), 
+                        [&](AbstractMenuItem* item) {
+                            if (item != toggleItem && item != diagItem) {
+                                toDelete.push_back(item);
+                                return true;
+                            }
+                            return false;
+                        }), items.end());
+
+                    // 在持有锁的情况下安全删除
+                    for (auto item : toDelete) {
                         delete item;
                     }
-                    w.lock();
 
-                    scope.count = 2; // 先设置基础项目数量
+                    scope.count = items.size();
                     layout_called = false;
 
                     for (auto &[s, r] : scanSsids)
@@ -215,12 +212,12 @@ void Menu::updater()
                         MenuList *options;
                         if (connected)
                             options = new MenuList(MenuItemType::List, "Options",
-                                                   {
-                                                       new MenuItem{ListItemType::Button, "Disconnect", "Disconnect from this network.",
+                                                {
+                                                    new MenuItem{ListItemType::Button, "Disconnect", "Disconnect from this network.",
                                                                     [&](AbstractMenuItem &item) -> InputReactionHint
                                                                     { WIFI_disconnect(); workerDirty = true; return Exit; }},
-                                                       new ForgetItem(r, workerDirty)
-                                                   });
+                                                    new ForgetItem(r, workerDirty)
+                                                });
                         else 
                         if (hasCredentials)
                             options = new MenuList(MenuItemType::List, "Options", { new ConnectKnownItem(r, workerDirty), new ForgetItem(r, workerDirty) });
@@ -240,7 +237,7 @@ void Menu::updater()
                     }
                     
                     workerDirty = true;
-                }
+                } // 锁在这里自动释放
             }
             pollSecs = 2;
         }
@@ -251,34 +248,31 @@ void Menu::updater()
             // 保存当前选择
             preserveUserSelection();
             
-            // 安全清理
-            std::vector<AbstractMenuItem*> oldItems;
-            for (auto item : items) {
-                if (item != toggleItem && item != diagItem) {
-                    oldItems.push_back(item);
-                }
-            }
-            
-            items.clear();
-            items.push_back(toggleItem);
-            items.push_back(diagItem);
-            
-            // 在锁外删除
-            w.unlock();
-            for (auto item : oldItems) {
+            // 安全清理并删除旧项
+            std::vector<AbstractMenuItem*> toDelete;
+            items.erase(std::remove_if(items.begin(), items.end(),
+                [&](AbstractMenuItem* item) {
+                    if (item != toggleItem && item != diagItem) {
+                        toDelete.push_back(item);
+                        return true;
+                    }
+                    return false;
+                }), items.end());
+
+            // 在持有锁的情况下安全删除
+            for (auto item : toDelete) {
                 delete item;
             }
-            w.lock();
             
             prevScan.clear();
-            scope.count = 2;
+            scope.count = items.size(); // 应该是2
             if (scope.selected >= scope.count) {
                 scope.selected = std::max(0, scope.count - 1);
             }
             layout_called = false;
             workerDirty = true;
             pollSecs = 15;
-        }
+        } // 锁在这里自动释放
 
         // reset selection scope (locks internally)
         if (workerDirty)
@@ -348,57 +342,40 @@ NetworkItem::NetworkItem(WIFI_network n, bool connected, MenuList* submenu)
 
 void NetworkItem::drawCustomItem(SDL_Surface *surface, const SDL_Rect &dst, const AbstractMenuItem &item, bool selected) const
 {
-    SDL_Color text_color = uintToColour(THEME_COLOR4_255);
-    SDL_Surface *text = TTF_RenderUTF8_Blended(font.tiny, item.getLabel().c_str(), COLOR_WHITE); // always white
+    // --- 只绘制图标，其他所有背景和文字都交由父类处理 ---
 
-    // hack - this should be correlated to max_width
-    int mw = dst.w;
+    // 预设图标颜色
+    uint32_t icon_color = selected ? THEME_COLOR6 : THEME_COLOR4_255;
 
-    if (selected)
-    {
-        // gray pill
-        GFX_blitPillLightCPP(ASSET_BUTTON, surface, {dst.x, dst.y, mw, SCALE1(BUTTON_SIZE)});
-    }
-
-    // wifi icon
+    // 1. 绘制信号强度图标
     auto asset =
-        net.rssi >= -60 ? ASSET_WIFI :    // anything above 61
-        net.rssi >= -70 ? ASSET_WIFI_MED  // -61 and below
-                        : ASSET_WIFI_LOW; // -71 and below
-    SDL_Rect rect = {0, 0, 12, 12};
-    int ix = dst.x + dst.w - SCALE1(OPTION_PADDING + rect.w);
-    int y = dst.y + SCALE1(BUTTON_SIZE - rect.h) / 2;
-    SDL_Rect tgt{ix, y};
-    GFX_blitAssetColor(asset, NULL, surface, &tgt, THEME_COLOR6);
+        net.rssi >= -60 ? ASSET_WIFI :    // 强
+        net.rssi >= -70 ? ASSET_WIFI_MED  // 中
+                        : ASSET_WIFI_LOW; // 弱
+    SDL_Rect icon_rect = {0, 0, 12, 12};
+    int icon_x = dst.x + dst.w - SCALE1(OPTION_PADDING + icon_rect.w);
+    int icon_y = dst.y + (SCALE1(PILL_SIZE) - SCALE1(icon_rect.h)) / 2;
+    SDL_Rect target_pos = {icon_x, icon_y};
+    GFX_blitAssetColor(asset, NULL, surface, &target_pos, icon_color);
 
-    // connected
+    // 记录当前图标的X坐标，为下一个图标定位
+    int next_icon_x = icon_x;
+
+    // 2. 绘制连接/锁定状态图标
     if(connected) {
-        SDL_Rect rect = {0, 0, 12, 12};
-        ix = ix - SCALE1(OPTION_PADDING + rect.w);
-        int y = dst.y + SCALE1(BUTTON_SIZE - rect.h) / 2;
-        SDL_Rect tgt{ix, y};
-        GFX_blitAssetColor(ASSET_CHECKCIRCLE, NULL, surface, &tgt, THEME_COLOR6);
+        // 绘制“已连接”图标
+        icon_rect = {0, 0, 12, 12};
+        next_icon_x = next_icon_x - SCALE1(OPTION_PADDING + icon_rect.w);
+        icon_y = dst.y + (SCALE1(PILL_SIZE) - SCALE1(icon_rect.h)) / 2;
+        target_pos = {next_icon_x, icon_y};
+        GFX_blitAssetColor(ASSET_CHECKCIRCLE, NULL, surface, &target_pos, icon_color);
     }
-    // encrypted
     else if(net.security != SECURITY_NONE) {
-        SDL_Rect rect = {0, 0, 8, 11};
-        ix = ix - SCALE1(OPTION_PADDING + rect.w + 2);
-        int y = dst.y + SCALE1(BUTTON_SIZE - rect.h) / 2;
-        SDL_Rect tgt{ix, y};
-        GFX_blitAssetColor(ASSET_LOCK, NULL, surface, &tgt, THEME_COLOR6);
+        // 绘制“锁定”图标
+        icon_rect = {0, 0, 8, 11};
+        next_icon_x = next_icon_x - SCALE1(OPTION_PADDING + icon_rect.w);
+        icon_y = dst.y + (SCALE1(PILL_SIZE) - SCALE1(icon_rect.h)) / 2;
+        target_pos = {next_icon_x, icon_y};
+        GFX_blitAssetColor(ASSET_LOCK, NULL, surface, &target_pos, icon_color);
     }
-
-    if (selected)
-    {
-        // white pill
-        int w = 0;
-        TTF_SizeUTF8(font.small, item.getName().c_str(), &w, NULL);
-        w += SCALE1(OPTION_PADDING * 2);
-        GFX_blitPillDarkCPP(ASSET_BUTTON, surface, {dst.x, dst.y, w, SCALE1(BUTTON_SIZE)});
-        text_color = uintToColour(THEME_COLOR5_255);
-    }
-
-    text = TTF_RenderUTF8_Blended(font.small, item.getName().c_str(), text_color);
-    SDL_BlitSurfaceCPP(text, {}, surface, {dst.x + SCALE1(OPTION_PADDING), dst.y + SCALE1(1)});
-    SDL_FreeSurface(text);
 }

@@ -552,16 +552,23 @@ void MenuList::drawFixedItem(SDL_Surface *surface, const SDL_Rect &dst, const Ab
     SDL_Color text_color = uintToColour(THEME_COLOR4_255);
     SDL_Color text_color_value = uintToColour(THEME_COLOR4_255);
     SDL_Surface *text;
-
     int mw = dst.w;
 
+    // 1. 绘制整行的浅色背景（仅在选中时）
     if (selected)
     {
         GFX_blitPillLightCPP(ASSET_WHITE_PILL, surface, {dst.x, dst.y, mw, SCALE1(PILL_SIZE)});
     }
 
-    if (item.getValue().has_value())
+    // 2. 绘制行右侧的内容
+    if (item.getType() == ListItemType::Custom)
     {
+        // 如果是自定义类型，则调用它的自定义绘制函数（现在只绘制图标）
+        item.drawCustomItem(surface, dst, item, selected);
+    }
+    else if (item.getValue().has_value())
+    {
+        // 对于其他类型，按原逻辑绘制右侧的文本值
         text = TTF_RenderUTF8_Blended(font.large, item.getLabel().c_str(), text_color_value);
 
         if (item.getType() == ListItemType::Color)
@@ -580,15 +587,17 @@ void MenuList::drawFixedItem(SDL_Surface *surface, const SDL_Rect &dst, const Ab
             SDL_BlitSurfaceCPP(text, {}, surface, {dst.x + mw - text->w - SCALE1(OPTION_PADDING + COLOR_PADDING + FONT_LARGE), dst.y + SCALE1(3)});
         }
         else if(item.getType() == ListItemType::Button) {
-        }
-        else if(item.getType() == ListItemType::Custom) {
-            item.drawCustomItem(surface, dst, item, selected);
+            // Do nothing for buttons on the right side
         }
         else
+        {
+            // Draw regular value text
             SDL_BlitSurfaceCPP(text, {}, surface, {dst.x + mw - text->w - SCALE1(OPTION_PADDING), dst.y + SCALE1(3)});
+        }
         SDL_FreeSurface(text);
     }
 
+    // 3. 绘制左侧项目名称的深色背景（仅在选中时）
     if (selected)
     {
         int w = 0;
@@ -598,6 +607,7 @@ void MenuList::drawFixedItem(SDL_Surface *surface, const SDL_Rect &dst, const Ab
         text_color = uintToColour(THEME_COLOR5_255);
     }
 
+    // 4. 绘制左侧的项目名称文本（所有项目都执行）
     text = TTF_RenderUTF8_Blended(font.large, item.getName().c_str(), text_color);
     SDL_BlitSurfaceCPP(text, {}, surface, {dst.x + SCALE1(OPTION_PADDING), dst.y + SCALE1(3)});
     SDL_FreeSurface(text);
