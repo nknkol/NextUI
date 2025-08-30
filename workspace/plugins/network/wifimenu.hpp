@@ -2,6 +2,8 @@
 
 #include "menu.hpp"
 #include <thread>
+#include <mutex>
+#include <condition_variable>
 
 namespace Wifi
 {
@@ -16,6 +18,13 @@ namespace Wifi
         std::thread worker;
         bool quit = false;
         bool workerDirty = false;
+        
+        // 用于可中断的睡眠和安全退出
+        std::mutex quitMutex;
+        std::condition_variable quitCondition;
+        
+        // 保持用户选择的状态
+        std::string lastSelectedItemName;
 
     public:
         Menu(const int &globalQuit);
@@ -33,6 +42,10 @@ namespace Wifi
         void resetWifiDiagnosticsState();
 
         void updater();
+        
+        // 保持和恢复用户选择的辅助函数
+        void preserveUserSelection();
+        void restoreUserSelection();
     };
 
     class NetworkItem : public MenuItem
