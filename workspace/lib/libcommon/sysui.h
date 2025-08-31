@@ -45,5 +45,6 @@ void SysUI_SetTitle(const char* title);
 void SysUI_SetFullscreen(bool fullscreen);
 void SysUI_SetBottomHints(const char* l_btn, const char* l_hint, const char* r_btn1, const char* r_hint1, const char* r_btn2, const char* r_hint2);
 void SysUI_ShowOverlay(SysUI_OverlayType type, int value, int min, int max);
+void SysUI_ShowBottomBar(bool show);
 
 #endif // SYSUI_H

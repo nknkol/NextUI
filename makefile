@@ -188,7 +188,8 @@ plugins:
 	cp $(SRC_PLUGINS_DIR)/gametime/build/$(PLATFORM)/gametime.so $(PLUGINS_DIR)/
 	cp $(SRC_PLUGINS_DIR)/appearance/build/$(PLATFORM)/appearance.so $(PLUGINS_DIR)/
 	cp $(SRC_PLUGINS_DIR)/ledcontrol/build/$(PLATFORM)/ledcontrol.so $(PLUGINS_DIR)/
-	cp $(SRC_PLUGINS_DIR)/network/build/$(PLATFORM)/network.so $(PLUGINS_DIR)/
+	cp $(SRC_PLUGINS_DIR)/network/build/$(PLATFORM)/wifinetwork.so $(PLUGINS_DIR)/
+	cp $(SRC_PLUGINS_DIR)/terminal/build/$(PLATFORM)/terminal.so $(PLUGINS_DIR)/
 
 # --- 主要工作流程目标 ---
 # =============================================================================

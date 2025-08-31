@@ -5,3 +5,4 @@ all:
 	cd appearance && make
 	cd ledcontrol && make
 	cd network && make
+	cd terminal && make

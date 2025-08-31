@@ -14,18 +14,18 @@ include ../../lib/libcommon/makefile.env
 ###########################################################
 
 # 插件的目标名称
-TARGET = network
+TARGET = wifinetwork
 
-SOURCE = $(TARGET).cpp menu.cpp wifimenu.cpp keyboardprompt.cpp
+SOURCE = $(TARGET).c keyboard.c
 
-CXX = $(CROSS_COMPILE)g++
+CC = $(CROSS_COMPILE)gcc
 
 INCDIR = -I. -I../../lib/libcommon/
 
 CXXFLAGS += $(CFLAGS) -fPIC -std=c++17
 CXXFLAGS += $(INCDIR)
 
-LDFLAGS += -lcommon -lmsettings -lstdc++ -shared -lwifimg -lwifid
+LDFLAGS += -lcommon -lmsettings -shared -lwifimg -lwifid
 
 PRODUCT= build/$(PLATFORM)/$(TARGET).so
 
@@ -33,7 +33,7 @@ PRODUCT= build/$(PLATFORM)/$(TARGET).so
 all:
 	@echo "Building Network Plugin for $(PLATFORM)..."
 	mkdir -p build/$(PLATFORM)
-	$(CXX) $(SOURCE) -o $(PRODUCT) $(CXXFLAGS) $(LDFLAGS) -shared
+	$(CC) $(SOURCE) -o $(PRODUCT) $(CFLAGS) $(INCDIR) -fPIC -shared $(LDFLAGS)
 	@echo "Successfully created $(PRODUCT)"
 
 # 清理规则
