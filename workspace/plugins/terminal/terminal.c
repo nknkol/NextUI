@@ -203,6 +203,7 @@ static int plugin_init(void* main_screen) {
     items_per_page = MAIN_ROW_COUNT;
 
     SysUI_Init(screen, &font);
+    PWR_init(); // 初始化电源管理
     
     // 初始创建一个会话
     create_session();
@@ -212,42 +213,46 @@ static int plugin_init(void* main_screen) {
 
 static int plugin_run() {
     int dirty = 1;
+    int show_setting = 0; // 0=无, 1=亮度, 2=音量, 3=色温
+    bool input_blocked_by_sysui = false;
 
     while (!quit_plugin) {
-        uint32_t frame_start = SDL_GetTicks();
         PAD_poll();
-        
+        PWR_update(&dirty, &show_setting, NULL, NULL); // 总是运行以处理电源键
+
         // 根据当前视图处理输入
         if (current_view == VIEW_LIST) {
-            SysUI_Update(); // 在列表视图中处理系统UI事件
+            input_blocked_by_sysui = SysUI_Update(); // 在列表视图中处理系统UI事件
 
-            if (PAD_justPressed(BTN_B)) {
-                quit_plugin = true;
-            } else if (PAD_justRepeated(BTN_UP)) {
-                if (session_count > 0) {
-                    selected_index = (selected_index - 1 + session_count) % session_count;
+            if (!input_blocked_by_sysui) {
+                 if (PAD_justPressed(BTN_B)) {
+                    quit_plugin = true;
+                } else if (PAD_justRepeated(BTN_UP)) {
+                    if (session_count > 0) {
+                        selected_index = (selected_index - 1 + session_count) % session_count;
+                        dirty = 1;
+                    }
+                } else if (PAD_justRepeated(BTN_DOWN)) {
+                    if (session_count > 0) {
+                        selected_index = (selected_index + 1) % session_count;
+                        dirty = 1;
+                    }
+                } else if (PAD_justPressed(BTN_Y)) {
+                    create_session();
                     dirty = 1;
-                }
-            } else if (PAD_justRepeated(BTN_DOWN)) {
-                if (session_count > 0) {
-                    selected_index = (selected_index + 1) % session_count;
+                } else if (PAD_justPressed(BTN_X)) {
+                    delete_session();
                     dirty = 1;
-                }
-            } else if (PAD_justPressed(BTN_Y)) {
-                create_session();
-                dirty = 1;
-            } else if (PAD_justPressed(BTN_X)) {
-                delete_session();
-                dirty = 1;
-            } else if (PAD_justPressed(BTN_A)) {
-                if (session_count > 0) {
-                    current_view = VIEW_TERMINAL;
-                    SysUI_SetFullscreen(true);
-                    dirty = 1;
+                } else if (PAD_justPressed(BTN_A)) {
+                    if (session_count > 0) {
+                        current_view = VIEW_TERMINAL;
+                        SysUI_SetFullscreen(true);
+                        dirty = 1;
+                    }
                 }
             }
         } else if (current_view == VIEW_TERMINAL) {
-            // 在终端视图中，我们不调用 SysUI_Update()
+            // 在终端视图中，不调用 SysUI_Update()
             if (PAD_justPressed(BTN_B)) {
                 current_view = VIEW_LIST;
                 SysUI_SetFullscreen(false);
@@ -262,7 +267,7 @@ static int plugin_run() {
                 SysUI_SetTitle("Terminal");
                 SysUI_SetBottomHints("Y", "Create", "X", "Delete", "A", "Enter");
                 render_session_list();
-                SysUI_Render(); // 绘制顶部和底部栏
+                SysUI_Render(); // 绘制顶部和底部栏 (包括亮度/音量等浮层)
             } else {
                 render_terminal_view(); // 渲染终端，不含SysUI
             }
@@ -279,13 +284,14 @@ static void plugin_quit(void) {
     // 确保退出时恢复非全屏状态
     SysUI_SetFullscreen(false);
     SysUI_Quit();
+    PWR_quit(); // 清理电源管理
 }
 
 // --- 插件导出 ---
 
 static NextUI_Plugin terminal_plugin_export = {
     .name = "Terminal",
-    // .display_path = SDCARD_PATH "/Tools/System", // 显示在工具/系统分类下
+    .display_path = SDCARD_PATH "/Tools/System", // 显示在工具/系统分类下
     .init = plugin_init,
     .run = plugin_run,
     .quit = plugin_quit,
