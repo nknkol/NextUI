@@ -36,10 +36,7 @@ Menu::Menu(const int &globalQuit) : MenuList(MenuItemType::Fixed, "Network", {})
 
 Menu::~Menu()
 {
-    {
-        std::unique_lock<std::mutex> lock(quitMutex);
-        quit = true;
-    }
+    quit.store(true); // 使用原子写操作
     quitCondition.notify_all(); // 唤醒睡眠中的线程
     
     if (worker.joinable())
@@ -49,11 +46,10 @@ Menu::~Menu()
 InputReactionHint Menu::handleInput(int &dirty, int &quit)
 {
     auto ret = MenuList::handleInput(dirty, quit);
-    if (workerDirty)
+    // exchange原子地将workerDirty设为false, 并返回它之前的值
+    if (workerDirty.exchange(false))
     {
         dirty = true;
-        workerDirty = false; // handled
-        //LOG_info("collected workerDirty\n");
     }
     return ret;
 }
@@ -147,30 +143,220 @@ bool key_compare(Map const &lhs, Map const &rhs)
                                                   { return a.first == b.first; });
 }
 
+// void Menu::updater()
+// {
+//     int pollSecs = 15;
+//     std::map<std::string, WIFI_network> prevScan;
+//     std::string prevSsid;
+    
+//     while (!quit.load() && !globalQuit)
+//     {
+
+//         // TODO: pause when menu is not rendered
+//         // Scan
+//         if (WIFI_enabled())
+//         {
+//             // scan for available networks and add a menu item for each
+//             WIFI_connection connection;
+//             if(WIFI_connectionInfo(&connection) < 0)
+//                 continue; // try again in a bit
+
+//             // grab list and compare it to previous result
+//             // only relayout the menu if changes happended
+//             std::vector<WIFI_network> scanResults(SCAN_MAX_RESULTS);
+//             int cnt = WIFI_scan(scanResults.data(), SCAN_MAX_RESULTS);
+//             if(cnt < 0)
+//                 continue; // try again in a bit
+
+//             std::map<std::string, WIFI_network> scanSsids;
+//             for (int i = 0; i < cnt; i++)
+//                 scanSsids.emplace(scanResults[i].ssid, scanResults[i]);
+
+//             // dont repopulate if any submenu is open
+//             bool menuOpen = false;
+//             {
+//                 ReadLock r(itemLock);
+//                 for(auto i : items){
+//                     if(i && i->isDeferred()){
+//                         menuOpen = true;
+//                         break;
+//                     }
+//                 }
+//             }
+
+//             // something changed?
+//             if (!menuOpen &&
+//                 (prevSsid != std::string(connection.ssid) 
+//                 || !key_compare(prevScan, scanSsids)))
+//             {
+//                 prevScan = scanSsids;
+//                 prevSsid = connection.ssid;
+
+//                 {
+//                     WriteLock w(itemLock);
+                    
+//                     // 保存当前选择
+//                     preserveUserSelection();
+                    
+//                     // 清理并删除旧的网络列表项
+//                     std::vector<AbstractMenuItem*> toDelete;
+//                     items.erase(std::remove_if(items.begin(), items.end(), 
+//                         [&](AbstractMenuItem* item) {
+//                             if (item != toggleItem && item != diagItem) {
+//                                 toDelete.push_back(item);
+//                                 return true;
+//                             }
+//                             return false;
+//                         }), items.end());
+
+//                     // 在持有锁的情况下安全删除
+//                     for (auto item : toDelete) {
+//                         delete item;
+//                     }
+
+//                     scope.count = items.size();
+//                     layout_called = false;
+
+//                     for (auto &[s, r] : scanSsids)
+//                     {
+//                         bool connected = false;
+//                         bool hasCredentials = WIFI_isKnown(r.ssid, r.security);
+
+//                         if (strcmp(connection.ssid, r.ssid) == 0)
+//                             connected = true;
+
+//                         MenuList *options;
+//                         if (connected)
+//                             options = new MenuList(MenuItemType::List, "Options",
+//                                                 {
+//                                                     new MenuItem{ListItemType::Button, "Disconnect", "Disconnect from this network.",
+//                                                                     [&](AbstractMenuItem &item) -> InputReactionHint
+//                                                                     { WIFI_disconnect(); workerDirty = true; return Exit; }},
+//                                                     new ForgetItem(r, workerDirty)
+//                                                 });
+//                         else 
+//                         if (hasCredentials)
+//                             options = new MenuList(MenuItemType::List, "Options", { new ConnectKnownItem(r, workerDirty), new ForgetItem(r, workerDirty) });
+//                         else
+//                             options = new MenuList(MenuItemType::List, "Options", { new ConnectNewItem(r, workerDirty) });
+
+//                         auto itm = new NetworkItem{r, connected, options};
+//                         if(connected && !std::string(connection.ip).empty())
+//                             itm->setDesc(std::string(r.bssid) + " | " + std::string(connection.ip));
+//                         items.push_back(itm);
+//                     }
+                    
+//                     scope.count = items.size();
+//                     // 确保selected在有效范围内
+//                     if (scope.selected >= scope.count) {
+//                         scope.selected = std::max(0, scope.count - 1);
+//                     }
+                    
+//                     workerDirty.store(true);
+//                 } // 锁在这里自动释放
+//             }
+//             pollSecs = 2;
+//         }
+//         else
+//         {
+//             WriteLock w(itemLock);
+            
+//             // 保存当前选择
+//             preserveUserSelection();
+            
+//             // 安全清理并删除旧项
+//             std::vector<AbstractMenuItem*> toDelete;
+//             items.erase(std::remove_if(items.begin(), items.end(),
+//                 [&](AbstractMenuItem* item) {
+//                     if (item != toggleItem && item != diagItem) {
+//                         toDelete.push_back(item);
+//                         return true;
+//                     }
+//                     return false;
+//                 }), items.end());
+
+//             // 在持有锁的情况下安全删除
+//             for (auto item : toDelete) {
+//                 delete item;
+//             }
+            
+//             prevScan.clear();
+//             scope.count = items.size(); // 应该是2
+//             if (scope.selected >= scope.count) {
+//                 scope.selected = std::max(0, scope.count - 1);
+//             }
+//             layout_called = false;
+//             workerDirty.store(true);
+//             pollSecs = 15;
+//         } // 锁在这里自动释放
+
+//         // reset selection scope (locks internally)
+//         if (workerDirty)
+//         {
+//             // 不直接调用performLayout，而是手动更新scope
+//             {
+//                 WriteLock w(itemLock);
+//                 scope.start = 0;
+//                 scope.count = items.size();
+//                 scope.max_visible_options = 5;
+//                 scope.end = std::min(scope.count, scope.max_visible_options);
+//                 scope.visible_rows = scope.end;
+                
+//                 // 恢复用户选择
+//                 restoreUserSelection();
+                
+//                 layout_called = true;
+//             }
+//         }
+
+//         // 使用条件变量进行可中断的等待，放在循环末尾
+//         {
+//             std::unique_lock<std::mutex> lock(quitMutex);
+//             if (quitCondition.wait_for(lock, std::chrono::seconds(pollSecs), [this] { return quit.load(); })) { // 使用原子读操作
+//                 break; // 收到退出信号
+//             }
+//         }
+//     }
+// }
+// 请用这个新版本完整替换掉旧的 Menu::updater() 函数
 void Menu::updater()
 {
+    LOG_note(LOG_REALTIME, "[WiFi Updater] Thread started.\n");
     int pollSecs = 15;
     std::map<std::string, WIFI_network> prevScan;
     std::string prevSsid;
     
-    while (!quit && !globalQuit)
+    // 初始延迟，等待系统稳定
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+
+    while (!quit.load() && !globalQuit)
     {
+        LOG_note(LOG_REALTIME, "[WiFi Updater] Loop iteration started.\n");
 
         // TODO: pause when menu is not rendered
         // Scan
+        LOG_note(LOG_REALTIME, "[WiFi Updater] Checking if WiFi is enabled...\n");
         if (WIFI_enabled())
         {
+            LOG_note(LOG_REALTIME, "[WiFi Updater] WiFi is ON. Getting connection info...\n");
             // scan for available networks and add a menu item for each
             WIFI_connection connection;
-            if(WIFI_connectionInfo(&connection) < 0)
+            if(WIFI_connectionInfo(&connection) < 0) {
+                LOG_note(LOG_REALTIME, "[WiFi Updater] WIFI_connectionInfo failed. Continuing loop.\n");
                 continue; // try again in a bit
+            }
 
             // grab list and compare it to previous result
             // only relayout the menu if changes happended
             std::vector<WIFI_network> scanResults(SCAN_MAX_RESULTS);
+            LOG_note(LOG_REALTIME, "[WiFi Updater] Starting WIFI_scan...\n");
             int cnt = WIFI_scan(scanResults.data(), SCAN_MAX_RESULTS);
-            if(cnt < 0)
+            LOG_note(LOG_REALTIME, "[WiFi Updater] WIFI_scan finished, found %d networks.\n", cnt);
+
+            if(cnt < 0) {
+                LOG_note(LOG_REALTIME, "[WiFi Updater] WIFI_scan returned error. Continuing loop.\n");
                 continue; // try again in a bit
+            }
 
             std::map<std::string, WIFI_network> scanSsids;
             for (int i = 0; i < cnt; i++)
@@ -187,21 +373,25 @@ void Menu::updater()
                     }
                 }
             }
+            LOG_note(LOG_REALTIME, "[WiFi Updater] Submenu open: %s.\n", menuOpen ? "yes" : "no");
 
             // something changed?
             if (!menuOpen &&
                 (prevSsid != std::string(connection.ssid) 
                 || !key_compare(prevScan, scanSsids)))
             {
+                LOG_note(LOG_REALTIME, "[WiFi Updater] Network list changed. Acquiring WriteLock to update UI items...\n");
                 prevScan = scanSsids;
                 prevSsid = connection.ssid;
 
                 {
                     WriteLock w(itemLock);
+                    LOG_note(LOG_REALTIME, "[WiFi Updater] WriteLock acquired. Preserving user selection...\n");
                     
                     // 保存当前选择
                     preserveUserSelection();
                     
+                    LOG_note(LOG_REALTIME, "[WiFi Updater] Clearing old network items...\n");
                     // 清理并删除旧的网络列表项
                     std::vector<AbstractMenuItem*> toDelete;
                     items.erase(std::remove_if(items.begin(), items.end(), 
@@ -213,10 +403,12 @@ void Menu::updater()
                             return false;
                         }), items.end());
 
+                    LOG_note(LOG_REALTIME, "[WiFi Updater] Deleting %zu old items from memory...\n", toDelete.size());
                     // 在持有锁的情况下安全删除
                     for (auto item : toDelete) {
                         delete item;
                     }
+                    LOG_note(LOG_REALTIME, "[WiFi Updater] Deletion complete. Re-populating list with %zu new items...\n", scanSsids.size());
 
                     scope.count = items.size();
                     layout_called = false;
@@ -235,7 +427,7 @@ void Menu::updater()
                                                 {
                                                     new MenuItem{ListItemType::Button, "Disconnect", "Disconnect from this network.",
                                                                     [&](AbstractMenuItem &item) -> InputReactionHint
-                                                                    { WIFI_disconnect(); workerDirty = true; return Exit; }},
+                                                                    { WIFI_disconnect(); workerDirty.store(true); return Exit; }},
                                                     new ForgetItem(r, workerDirty)
                                                 });
                         else 
@@ -256,47 +448,58 @@ void Menu::updater()
                         scope.selected = std::max(0, scope.count - 1);
                     }
                     
-                    workerDirty = true;
+                    LOG_note(LOG_REALTIME, "[WiFi Updater] List re-populated. Setting dirty flag.\n");
+                    workerDirty.store(true);
                 } // 锁在这里自动释放
+                LOG_note(LOG_REALTIME, "[WiFi Updater] WriteLock released.\n");
             }
             pollSecs = 2;
         }
         else
         {
-            WriteLock w(itemLock);
-            
-            // 保存当前选择
-            preserveUserSelection();
-            
-            // 安全清理并删除旧项
-            std::vector<AbstractMenuItem*> toDelete;
-            items.erase(std::remove_if(items.begin(), items.end(),
-                [&](AbstractMenuItem* item) {
-                    if (item != toggleItem && item != diagItem) {
-                        toDelete.push_back(item);
-                        return true;
-                    }
-                    return false;
-                }), items.end());
+            LOG_note(LOG_REALTIME, "[WiFi Updater] WiFi is OFF. Clearing network list if necessary...\n");
+            if(items.size() > 2) { // Only clear if there are network items present
+                WriteLock w(itemLock);
+                LOG_note(LOG_REALTIME, "[WiFi Updater] WriteLock acquired for clearing. Preserving selection...\n");
+                
+                // 保存当前选择
+                preserveUserSelection();
+                
+                LOG_note(LOG_REALTIME, "[WiFi Updater] Clearing old network items...\n");
+                // 安全清理并删除旧项
+                std::vector<AbstractMenuItem*> toDelete;
+                items.erase(std::remove_if(items.begin(), items.end(),
+                    [&](AbstractMenuItem* item) {
+                        if (item != toggleItem && item != diagItem) {
+                            toDelete.push_back(item);
+                            return true;
+                        }
+                        return false;
+                    }), items.end());
 
-            // 在持有锁的情况下安全删除
-            for (auto item : toDelete) {
-                delete item;
+                LOG_note(LOG_REALTIME, "[WiFi Updater] Deleting %zu old items from memory...\n", toDelete.size());
+                // 在持有锁的情况下安全删除
+                for (auto item : toDelete) {
+                    delete item;
+                }
+                
+                prevScan.clear();
+                scope.count = items.size(); // 应该是2
+                if (scope.selected >= scope.count) {
+                    scope.selected = std::max(0, scope.count - 1);
+                }
+                layout_called = false;
+                LOG_note(LOG_REALTIME, "[WiFi Updater] Clearing complete. Setting dirty flag.\n");
+                workerDirty.store(true);
+                LOG_note(LOG_REALTIME, "[WiFi Updater] WriteLock released.\n");
             }
-            
-            prevScan.clear();
-            scope.count = items.size(); // 应该是2
-            if (scope.selected >= scope.count) {
-                scope.selected = std::max(0, scope.count - 1);
-            }
-            layout_called = false;
-            workerDirty = true;
             pollSecs = 15;
         } // 锁在这里自动释放
 
         // reset selection scope (locks internally)
-        if (workerDirty)
+        if (workerDirty.load())
         {
+            LOG_note(LOG_REALTIME, "[WiFi Updater] Worker is dirty. Updating layout...\n");
             // 不直接调用performLayout，而是手动更新scope
             {
                 WriteLock w(itemLock);
@@ -311,50 +514,51 @@ void Menu::updater()
                 
                 layout_called = true;
             }
+            LOG_note(LOG_REALTIME, "[WiFi Updater] Layout updated.\n");
         }
 
         // 使用条件变量进行可中断的等待，放在循环末尾
         {
+            LOG_note(LOG_REALTIME, "[WiFi Updater] Thread going to sleep for %d seconds...\n\n", pollSecs);
             std::unique_lock<std::mutex> lock(quitMutex);
-            if (quitCondition.wait_for(lock, std::chrono::seconds(pollSecs), [this] { return quit; })) {
+            if (quitCondition.wait_for(lock, std::chrono::seconds(pollSecs), [this] { return quit.load(); })) {
+                LOG_note(LOG_REALTIME, "[WiFi Updater] Quit signal received during sleep. Breaking loop.\n");
                 break; // 收到退出信号
             }
         }
     }
+    LOG_note(LOG_REALTIME, "[WiFi Updater] Loop finished. Thread exiting.\n");
 }
 
-ConnectKnownItem::ConnectKnownItem(WIFI_network n, bool& dirty)
+ConnectKnownItem::ConnectKnownItem(WIFI_network n, std::atomic<bool>& dirty)
     : MenuItem(ListItemType::Button, "Connect", "Connect to this network.", [&](AbstractMenuItem &item) -> InputReactionHint{
-        std::thread([net_copy = net, &d = dirty]() mutable { // <-- 在这里添加 mutable
+        // 异步连接避免阻塞UI
+        std::thread([net_copy = net, &d = dirty]() mutable {
             WIFI_connect(net_copy.ssid, net_copy.security); 
-            d = true;
+            d.store(true);
         }).detach();
         return Exit;
     }), net(n)
 {}
 
-ConnectNewItem::ConnectNewItem(WIFI_network n, bool& dirty)
+ConnectNewItem::ConnectNewItem(WIFI_network n, std::atomic<bool>& dirty)
     : MenuItem(ListItemType::Button, "Enter WiFi passcode", "Connect to this network.", DeferToSubmenu, new KeyboardPrompt("Enter Wifi passcode", 
-        // 捕获 'n' (网络信息) 和 'dirty' 的引用
         [n, &dirty](AbstractMenuItem &item) -> InputReactionHint {
-            // 从item中获取密码并存储为string副本
             std::string password = item.getName(); 
-            
             // 异步连接避免阻塞UI
-            // 按值捕获网络信息副本和密码副本
             std::thread([network = n, pwd = password, &d = dirty]() {
                 WIFI_connectPass(network.ssid, network.security, pwd.c_str()); 
-                d = true;
+                d.store(true);
             }).detach();
             return Exit; 
         })), net(n)
 {}
 
-ForgetItem::ForgetItem(WIFI_network n, bool& dirty)
+ForgetItem::ForgetItem(WIFI_network n, std::atomic<bool>& dirty)
     : MenuItem(ListItemType::Button, "Forget", "Removes credentials for this network.",
-        [&](AbstractMenuItem &item) -> InputReactionHint { 
+        [&, &dirty_ref = dirty](AbstractMenuItem &item) -> InputReactionHint { 
             WIFI_forget(net.ssid, net.security); 
-            dirty = true; 
+            dirty_ref.store(true); 
             return Exit;
         }), net(n)
 {}

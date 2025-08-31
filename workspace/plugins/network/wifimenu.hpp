@@ -4,6 +4,7 @@
 #include <thread>
 #include <mutex>
 #include <condition_variable>
+#include <atomic> // 1. 包含了 <atomic> 头文件
 
 namespace Wifi
 {
@@ -16,8 +17,8 @@ namespace Wifi
         MenuItem *diagItem;
 
         std::thread worker;
-        bool quit = false;
-        bool workerDirty = false;
+        std::atomic<bool> quit{false}; // 2. 将类型从 bool 改为 std::atomic<bool>
+        std::atomic<bool> workerDirty{false}; // 3. 将类型从 bool 改为 std::atomic<bool>
         
         // 用于可中断的睡眠和安全退出
         std::mutex quitMutex;
@@ -65,7 +66,8 @@ namespace Wifi
         WIFI_network net;
 
     public:
-        ConnectKnownItem(WIFI_network n, bool& dirty);
+        // 4. 将构造函数参数从 bool& 改为 std::atomic<bool>&
+        ConnectKnownItem(WIFI_network n, std::atomic<bool>& dirty);
     };
 
     class ConnectNewItem : public MenuItem
@@ -73,7 +75,8 @@ namespace Wifi
         WIFI_network net;
 
     public:
-        ConnectNewItem(WIFI_network n, bool& dirty);
+        // 5. 将构造函数参数从 bool& 改为 std::atomic<bool>&
+        ConnectNewItem(WIFI_network n, std::atomic<bool>& dirty);
     };
 
     class ForgetItem : public MenuItem
@@ -81,6 +84,7 @@ namespace Wifi
         WIFI_network net;
 
     public:
-        ForgetItem(WIFI_network n, bool& dirty);
+        // 6. 将构造函数参数从 bool& 改为 std::atomic<bool>&
+        ForgetItem(WIFI_network n, std::atomic<bool>& dirty);
     };
 }
