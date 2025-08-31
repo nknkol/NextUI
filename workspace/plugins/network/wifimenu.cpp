@@ -94,29 +94,49 @@ void Menu::resetWifiDiagnosticsState()
 // 保持用户选择的辅助函数
 void Menu::preserveUserSelection()
 {
+    // 确保 items 列表和 scope.selected 都是有效的
     if (scope.selected >= 0 && scope.selected < items.size() && items[scope.selected]) {
         lastSelectedItemName = items[scope.selected]->getName();
+        lastSelectedIndex = scope.selected; // <--- 添加这一行来保存当前索引
     }
 }
 
 void Menu::restoreUserSelection()
 {
+    bool selectionRestored = false;
+
+    // 1. 优先尝试按名称恢复，这是最精确的方式
     if (!lastSelectedItemName.empty()) {
         for (int i = 0; i < items.size(); i++) {
             if (items[i] && items[i]->getName() == lastSelectedItemName) {
                 scope.selected = i;
-                // 调整显示范围
-                if (scope.selected < scope.start) {
-                    scope.start = scope.selected;
-                    scope.end = std::min(scope.start + scope.max_visible_options, scope.count);
-                } else if (scope.selected >= scope.end) {
-                    scope.end = scope.selected + 1;
-                    scope.start = std::max(0, scope.end - scope.max_visible_options);
-                }
+                selectionRestored = true;
                 break;
             }
         }
     }
+
+    // 2. 如果按名称恢复失败 (例如WiFi消失了), 则使用我们保存的索引来定位
+    if (!selectionRestored) {
+        // 将旧的索引限制在新列表的有效范围内
+        // 这会自动选中新列表中最接近旧位置的项
+        scope.selected = std::max(0, std::min(lastSelectedIndex, (int)items.size() - 1));
+    }
+
+    // 3. 最后，调整滚动视图，确保新选中的项目是可见的
+    // 确保 end 不会超过新的列表边界
+    scope.end = std::min(scope.start + scope.max_visible_options, (int)items.size());
+    if (scope.selected >= scope.end) { // 如果选中项在当前视图下方
+        scope.start = scope.selected - scope.max_visible_options + 1;
+        scope.end = scope.start + scope.max_visible_options;
+    } else if (scope.selected < scope.start) { // 如果选中项在当前视图上方
+        scope.start = scope.selected;
+        scope.end = scope.start + scope.max_visible_options;
+    }
+    
+    // 再次确保 start 和 end 不会越界
+    scope.start = std::max(0, scope.start);
+    scope.end = std::min((int)items.size(), scope.end);
 }
 
 template <typename Map>
@@ -305,10 +325,9 @@ void Menu::updater()
 
 ConnectKnownItem::ConnectKnownItem(WIFI_network n, bool& dirty)
     : MenuItem(ListItemType::Button, "Connect", "Connect to this network.", [&](AbstractMenuItem &item) -> InputReactionHint{
-        // 异步连接避免阻塞UI
-        std::thread([this, &dirty]() {
-            WIFI_connect(net.ssid, net.security); 
-            dirty = true;
+        std::thread([net_copy = net, &d = dirty]() mutable { // <-- 在这里添加 mutable
+            WIFI_connect(net_copy.ssid, net_copy.security); 
+            d = true;
         }).detach();
         return Exit;
     }), net(n)
@@ -316,11 +335,16 @@ ConnectKnownItem::ConnectKnownItem(WIFI_network n, bool& dirty)
 
 ConnectNewItem::ConnectNewItem(WIFI_network n, bool& dirty)
     : MenuItem(ListItemType::Button, "Enter WiFi passcode", "Connect to this network.", DeferToSubmenu, new KeyboardPrompt("Enter Wifi passcode", 
-        [&](AbstractMenuItem &item) -> InputReactionHint {
+        // 捕获 'n' (网络信息) 和 'dirty' 的引用
+        [n, &dirty](AbstractMenuItem &item) -> InputReactionHint {
+            // 从item中获取密码并存储为string副本
+            std::string password = item.getName(); 
+            
             // 异步连接避免阻塞UI
-            std::thread([this, &dirty, &item]() {
-                WIFI_connectPass(net.ssid, net.security, item.getName().c_str()); 
-                dirty = true;
+            // 按值捕获网络信息副本和密码副本
+            std::thread([network = n, pwd = password, &d = dirty]() {
+                WIFI_connectPass(network.ssid, network.security, pwd.c_str()); 
+                d = true;
             }).detach();
             return Exit; 
         })), net(n)

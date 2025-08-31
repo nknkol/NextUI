@@ -25,6 +25,7 @@ namespace Wifi
         
         // 保持用户选择的状态
         std::string lastSelectedItemName;
+        int lastSelectedIndex = 0;
 
     public:
         Menu(const int &globalQuit);

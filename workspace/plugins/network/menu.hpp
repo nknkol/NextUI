@@ -162,9 +162,10 @@ public:
                      MenuList *submenu = nullptr)
         : type(type), name(name), desc(desc), on_get(on_get), on_set(on_set), 
         on_reset(on_reset), on_confirm(on_confirm), submenu(submenu) {}
-    ~AbstractMenuItem() {
-         // delete submenu;
-    }
+    // ~AbstractMenuItem() {
+    //     // delete submenu;
+    // }
+    ~AbstractMenuItem();
 
     virtual const std::any getValue() const = 0;
     virtual const std::string getLabel() const = 0;

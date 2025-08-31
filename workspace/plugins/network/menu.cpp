@@ -13,6 +13,10 @@ typedef std::shared_mutex Lock;
 typedef std::unique_lock< Lock >  WriteLock;
 typedef std::shared_lock< Lock >  ReadLock;
 
+AbstractMenuItem::~AbstractMenuItem()
+{
+    delete submenu;
+}
 ///////////////////////////////////////////////////////////
 
 MenuItem::MenuItem(ListItemType type, const std::string &name, const std::string &desc,
@@ -324,7 +328,7 @@ bool MenuList::selectPrev()
 
 InputReactionHint MenuList::handleInput(int &dirty, int &quit)
 {
-    ReadLock r(itemLock);
+    WriteLock w(itemLock); // <-- 必须使用写锁来保护 scope 变量
     InputReactionHint handled = items.at(scope.selected)->handleInput(dirty);
     if(handled == ResetAllItems) {
         resetAllItems();
