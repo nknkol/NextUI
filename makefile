@@ -109,6 +109,10 @@ lib:
 	cp $(SRC_LIB_DIR)/libbatmondb/build/$(PLATFORM)/libbatmondb.so $(SYSTEM_LIB)/
 	cp $(SRC_LIB_DIR)/libgametimedb/build/$(PLATFORM)/libgametimedb.so $(SYSTEM_LIB)/
 
+	cp $(SRC_OTHER_DIR)/libtsm/build/src/tsm/libtsm.so.4.1.0 $(SYSTEM_LIB)/ibtsm.so.4.1.0
+	cp $(SRC_OTHER_DIR)/libtsm/build/src/tsm/libtsm.so $(SYSTEM_LIB)/
+	cp $(SRC_OTHER_DIR)/libtsm/build/src/tsm/libtsm.so.4 $(SYSTEM_LIB)/
+
 	# cp $(SRC_SYS_DIR)/compositor/build/$(PLATFORM)/libfb_compositor.so $(EXTRAS_TOOLS)/Compositor.pak/
 
 apps:
