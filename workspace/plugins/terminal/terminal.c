@@ -1,4 +1,4 @@
-// terminal.c (可编译 + 实时日志最终调试版)
+// terminal.c (已修正函数重复定义错误)
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -197,14 +197,7 @@ static void delete_session(void) {
     TLOG("delete_session: Done. Active sessions: %d\n", session_count);
 }
 
-// --- Render, Input, and Lifecycle Functions ---
-static void render_session_list(void) { /* As implemented before */ }
-static void render_osk(void) { /* As implemented before */ }
-static void render_terminal_view(void) { /* As implemented before */ }
-static void handle_list_input(void) { /* As implemented before */ }
-static void handle_terminal_input(void) { /* As implemented before */ }
-
-#pragma region Render and Input Functions
+// --- 渲染函数 ---
 static void render_session_list(void) {
     if (session_count > 0) {
         int visible_count = 0;
@@ -294,8 +287,8 @@ static void handle_terminal_input(void) {
     if (PAD_justPressed(BTN_L1)) { osk_active = !osk_active; }
     if (PAD_justPressed(BTN_B)) { current_view = VIEW_LIST; SysUI_SetFullscreen(false); }
 }
-#pragma endregion
 
+// --- 插件生命周期 ---
 static int plugin_init(void* main_screen) {
     TLOG("====================================================\n");
     TLOG("plugin_init: START\n");
