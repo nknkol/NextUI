@@ -22,8 +22,8 @@
 // --- 宏和枚举定义 ---
 #define MAX_SESSIONS 5
 #define PILL_HEIGHT SCALE1(PILL_SIZE)
-#define TERMINAL_FONT_WIDTH 8
-#define TERMINAL_FONT_HEIGHT 16
+#define TERMINAL_FONT_WIDTH 6
+#define TERMINAL_FONT_HEIGHT 12
 #define TLOG(fmt, ...) LOG_note(LOG_REALTIME, "[Terminal] " fmt, ##__VA_ARGS__)
 
 typedef enum {
@@ -131,11 +131,39 @@ static bool initialize_real_terminal(TerminalSession* session) {
     pid = fork();
     if (pid < 0) { TLOG("initialize_real_terminal: fork() FAILED: %s\n", strerror(errno)); close(ptm_fd); close(pts_fd); return false; }
     
+    // if (pid == 0) { // 子进程
+    //     close(ptm_fd); setsid(); ioctl(pts_fd, TIOCSCTTY, NULL);
+    //     dup2(pts_fd, STDIN_FILENO); dup2(pts_fd, STDOUT_FILENO); dup2(pts_fd, STDERR_FILENO);
+    //     close(pts_fd);
+    //     setenv("TERM", "xterm-256color", 1); setenv("PATH", "/usr/bin:/bin:/usr/sbin:/sbin", 1); setenv("HOME", SDCARD_PATH, 1);
+    //     char *args[] = {"/bin/sh", NULL};
+    //     execv(args[0], args);
+    //     exit(1);
+    // }
     if (pid == 0) { // 子进程
-        close(ptm_fd); setsid(); ioctl(pts_fd, TIOCSCTTY, NULL);
-        dup2(pts_fd, STDIN_FILENO); dup2(pts_fd, STDOUT_FILENO); dup2(pts_fd, STDERR_FILENO);
+        close(ptm_fd); 
+        setsid(); 
+        ioctl(pts_fd, TIOCSCTTY, NULL);
+        dup2(pts_fd, STDIN_FILENO); 
+        dup2(pts_fd, STDOUT_FILENO); 
+        dup2(pts_fd, STDERR_FILENO);
         close(pts_fd);
-        setenv("TERM", "xterm-256color", 1); setenv("PATH", "/usr/bin:/bin:/usr/sbin:/sbin", 1); setenv("HOME", SDCARD_PATH, 1);
+        
+        // 设置正确的环境变量
+        setenv("TERM", "xterm-256color", 1); 
+        setenv("PATH", "/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin", 1); 
+        
+        // 设置HOME为root用户目录，而不是SDCARD_PATH
+        setenv("HOME", "/mnt/SDCARD", 1);
+        
+        // 切换到HOME目录
+        if (chdir("/mnt/SDCARD") != 0) {
+            // 如果/root不存在，尝试其他目录
+            if (chdir("/") != 0) {
+                TLOG("initialize_real_terminal: Child: Failed to change directory\n");
+            }
+        }
+        
         char *args[] = {"/bin/sh", NULL};
         execv(args[0], args);
         exit(1);
@@ -300,7 +328,7 @@ static int plugin_init(void* main_screen) {
     selected_index = 0;
     list_start_index = 0;
     session_count = 0;
-    next_session_id = 1;  // 如果你想要每次都从1开始的话
+    next_session_id = 1; 
     osk_active = true;
     osk_x = 0;
     osk_y = 0;
@@ -308,7 +336,7 @@ static int plugin_init(void* main_screen) {
     screen = (SDL_Surface*)main_screen;
     items_per_page = MAIN_ROW_COUNT;
     memset(sessions, 0, sizeof(sessions));
-    
+
     TLOG("plugin_init: Static variables initialized.\n");
 
     TLOG("plugin_init: Calling SysUI_Init()...\n");
@@ -319,6 +347,16 @@ static int plugin_init(void* main_screen) {
     // PWR_init();
     // TLOG("plugin_init: PWR_init() OK.\n");
     
+    // char mono_font_path[MAX_PATH];
+    // snprintf(mono_font_path, sizeof(mono_font_path), "%s/mono.ttf", RES_PATH);
+    // TLOG("plugin_init: Trying font at %s\n", mono_font_path);
+    // if (!exists(mono_font_path)) {
+    //    snprintf(mono_font_path, sizeof(mono_font_path), "%s/font.ttf", RES_PATH);
+    //    TLOG("plugin_init: mono.ttf not found, fallback to %s\n", mono_font_path);
+    // }
+    // mono_font = TTF_OpenFont(mono_font_path, SCALE1(TERMINAL_FONT_HEIGHT - 2));
+    // if (!mono_font) { TLOG("plugin_init: FAILED to load any font!\n"); return -1; }
+    // TLOG("plugin_init: Font loaded successfully.\n");
     char mono_font_path[MAX_PATH];
     snprintf(mono_font_path, sizeof(mono_font_path), "%s/mono.ttf", RES_PATH);
     TLOG("plugin_init: Trying font at %s\n", mono_font_path);
@@ -326,8 +364,13 @@ static int plugin_init(void* main_screen) {
        snprintf(mono_font_path, sizeof(mono_font_path), "%s/font.ttf", RES_PATH);
        TLOG("plugin_init: mono.ttf not found, fallback to %s\n", mono_font_path);
     }
-    mono_font = TTF_OpenFont(mono_font_path, SCALE1(TERMINAL_FONT_HEIGHT - 2));
-    if (!mono_font) { TLOG("plugin_init: FAILED to load any font!\n"); return -1; }
+    
+    // 调整字体大小 - 使用更小的尺寸
+    mono_font = TTF_OpenFont(mono_font_path, SCALE1(10)); // 固定使用10而不是TERMINAL_FONT_HEIGHT-2
+    if (!mono_font) { 
+        TLOG("plugin_init: FAILED to load any font!\n"); 
+        return -1; 
+    }
     TLOG("plugin_init: Font loaded successfully.\n");
 
     create_session();
