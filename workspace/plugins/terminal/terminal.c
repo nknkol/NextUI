@@ -292,18 +292,32 @@ static void handle_terminal_input(void) {
 static int plugin_init(void* main_screen) {
     TLOG("====================================================\n");
     TLOG("plugin_init: START\n");
+    
+    // 重置静态变量！
+    quit_plugin = false;
+    current_view = VIEW_LIST;
+    active_session_idx = -1;
+    selected_index = 0;
+    list_start_index = 0;
+    session_count = 0;
+    next_session_id = 1;  // 如果你想要每次都从1开始的话
+    osk_active = true;
+    osk_x = 0;
+    osk_y = 0;
+    
     screen = (SDL_Surface*)main_screen;
     items_per_page = MAIN_ROW_COUNT;
     memset(sessions, 0, sizeof(sessions));
+    
     TLOG("plugin_init: Static variables initialized.\n");
 
     TLOG("plugin_init: Calling SysUI_Init()...\n");
     SysUI_Init(screen, &font);
     TLOG("plugin_init: SysUI_Init() OK.\n");
 
-    TLOG("plugin_init: Calling PWR_init()...\n");
-    PWR_init();
-    TLOG("plugin_init: PWR_init() OK.\n");
+    // TLOG("plugin_init: Calling PWR_init()...\n");
+    // PWR_init();
+    // TLOG("plugin_init: PWR_init() OK.\n");
     
     char mono_font_path[MAX_PATH];
     snprintf(mono_font_path, sizeof(mono_font_path), "%s/mono.ttf", RES_PATH);

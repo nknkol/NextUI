@@ -29,7 +29,7 @@ CC = $(CROSS_COMPILE)gcc
 CFLAGS  += $(ARCH) -fomit-frame-pointer -fPIC -DHAS_WIFIMG
 CFLAGS  += $(INCDIR) -DPLATFORM=\"$(PLATFORM)\" -std=gnu99
 # 添加 -shared 并保留必要的库链接
-LDFLAGS	 += -shared -lmsettings -lwifimg -lwifid -ltsm
+LDFLAGS	 += -shared -lmsettings -lwifimg -lwifid -ltsm -lutil
 
 # 将输出目标从 .elf 修改为 .so
 PRODUCT= build/$(PLATFORM)/$(TARGET).so

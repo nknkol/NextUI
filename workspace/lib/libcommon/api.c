@@ -77,7 +77,7 @@ void LOG_note(int level, const char* fmt, ...) {
             snprintf(log_path, sizeof(log_path), "%s/%s_realtime.txt", LOGS_PATH, proc_name);
             
             // 以 "w" 模式打开，清空旧日志
-            realtime_log_file = fopen(log_path, "w");
+            realtime_log_file = fopen(log_path, "a");
             if (realtime_log_file) {
                 // 注册退出时要调用的清理函数
                 atexit(close_realtimelog); 
