@@ -59,8 +59,18 @@ static int items_per_page = 0;
 static bool osk_active = true;
 static int osk_x = 0, osk_y = 0;
 static const char* osk_layout[] = {
-    "`1234567890-=", " qwertyuiop[]\\", " asdfghjkl;'", " zxcvbnm,./", " "
+    "1234567890-=",     // 数字行
+    "qwertyuiop[]",     // 第一字母行  
+    "asdfghjkl;'\\",    // 第二字母行
+    "zxcvbnm,./",       // 第三字母行
+    ""                  // 功能键行（单独处理）
 };
+
+static const char* function_keys[] = {
+    "ESC", "TAB", "RET", "BS", "SPC", "↑", "↓", "HIDE"
+};
+#define FUNC_KEY_COUNT 8
+
 #define OSK_ROWS (sizeof(osk_layout) / sizeof(osk_layout[0]))
 
 // --- 回调函数 ---
@@ -131,43 +141,33 @@ static bool initialize_real_terminal(TerminalSession* session) {
     pid = fork();
     if (pid < 0) { TLOG("initialize_real_terminal: fork() FAILED: %s\n", strerror(errno)); close(ptm_fd); close(pts_fd); return false; }
     
-    // if (pid == 0) { // 子进程
-    //     close(ptm_fd); setsid(); ioctl(pts_fd, TIOCSCTTY, NULL);
-    //     dup2(pts_fd, STDIN_FILENO); dup2(pts_fd, STDOUT_FILENO); dup2(pts_fd, STDERR_FILENO);
-    //     close(pts_fd);
-    //     setenv("TERM", "xterm-256color", 1); setenv("PATH", "/usr/bin:/bin:/usr/sbin:/sbin", 1); setenv("HOME", SDCARD_PATH, 1);
-    //     char *args[] = {"/bin/sh", NULL};
-    //     execv(args[0], args);
-    //     exit(1);
-    // }
+
     if (pid == 0) { // 子进程
-        close(ptm_fd); 
-        setsid(); 
-        ioctl(pts_fd, TIOCSCTTY, NULL);
-        dup2(pts_fd, STDIN_FILENO); 
-        dup2(pts_fd, STDOUT_FILENO); 
-        dup2(pts_fd, STDERR_FILENO);
-        close(pts_fd);
-        
-        // 设置正确的环境变量
-        setenv("TERM", "xterm-256color", 1); 
-        setenv("PATH", "/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin", 1); 
-        
-        // 设置HOME为root用户目录，而不是SDCARD_PATH
-        setenv("HOME", "/mnt/SDCARD", 1);
-        
-        // 切换到HOME目录
-        if (chdir("/mnt/SDCARD") != 0) {
-            // 如果/root不存在，尝试其他目录
-            if (chdir("/") != 0) {
-                TLOG("initialize_real_terminal: Child: Failed to change directory\n");
+            close(ptm_fd); 
+            setsid(); 
+            ioctl(pts_fd, TIOCSCTTY, NULL);
+            dup2(pts_fd, STDIN_FILENO); 
+            dup2(pts_fd, STDOUT_FILENO); 
+            dup2(pts_fd, STDERR_FILENO);
+            close(pts_fd);
+            
+            // 设置环境变量 - 使用SDCARD_PATH作为HOME
+            setenv("TERM", "xterm-256color", 1); 
+            setenv("PATH", "/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin", 1); 
+            setenv("HOME", SDCARD_PATH, 1);  // 使用定义的SDCARD_PATH
+            setenv("USER", "root", 1);
+            setenv("LOGNAME", "root", 1);
+            
+            // 切换到SDCARD目录
+            if (chdir(SDCARD_PATH) != 0) {
+                // 如果SDCARD_PATH不可访问，切换到根目录
+                chdir("/");
             }
+            
+            char *args[] = {"/bin/sh", "-l", NULL};  // 添加-l参数加载配置
+            execv(args[0], args);
+            exit(1);
         }
-        
-        char *args[] = {"/bin/sh", NULL};
-        execv(args[0], args);
-        exit(1);
-    }
 
     close(pts_fd);
     fcntl(ptm_fd, F_SETFL, fcntl(ptm_fd, F_GETFL, 0) | O_NONBLOCK);
@@ -259,23 +259,110 @@ static void render_session_list(void) {
 }
 static void render_osk(void) {
     if (!osk_active || !mono_font) return;
-    int osk_h = (OSK_ROWS + 1) * SCALE1(TERMINAL_FONT_HEIGHT);
-    int osk_y_start = screen->h - osk_h;
-    SDL_Rect bg = {0, osk_y_start, screen->w, osk_h};
-    SDL_FillRect(screen, &bg, SDL_MapRGB(screen->format, 20, 20, 20));
-    for (int y=0; y < OSK_ROWS; ++y) {
-        const char *row_str = osk_layout[y];
-        for (int x=0; x < strlen(row_str); ++x) {
-            char c[2] = {row_str[x], 0};
-            SDL_Color color = (y == osk_y && x == osk_x) ? COLOR_BLACK : COLOR_WHITE;
-            SDL_Color bgcolor = (y == osk_y && x == osk_x) ? COLOR_WHITE : (SDL_Color){20,20,20,255};
-            SDL_Surface *s = TTF_RenderUTF8_Shaded(mono_font, c, color, bgcolor);
-            if (s) {
-                SDL_Rect dst = {x * SCALE1(TERMINAL_FONT_WIDTH) + SCALE1(PADDING), osk_y_start + y * SCALE1(TERMINAL_FONT_HEIGHT), s->w, s->h};
-                SDL_BlitSurface(s, NULL, screen, &dst);
-                SDL_FreeSurface(s);
+    
+    // 大幅缩小尺寸
+    int key_width = SCALE1(18);   // 从30减少到18
+    int key_height = SCALE1(16);  // 从22减少到16  
+    int key_spacing = SCALE1(1);  // 从2减少到1
+    
+    int osk_h = OSK_ROWS * (key_height + key_spacing);
+    int osk_y_start = screen->h - osk_h - SCALE1(3); // 减少底部边距
+    
+    // 键盘背景 - 更紧凑
+    SDL_Rect bg = {0, osk_y_start - SCALE1(2), screen->w, osk_h + SCALE1(4)};
+    SDL_FillRect(screen, &bg, SDL_MapRGB(screen->format, 15, 15, 15));
+    
+    for (int row = 0; row < OSK_ROWS; ++row) {
+        int row_y = osk_y_start + row * (key_height + key_spacing);
+        
+        if (row == 4) { // 功能键行
+            int total_width = FUNC_KEY_COUNT * key_width + (FUNC_KEY_COUNT - 1) * key_spacing;
+            int start_x = (screen->w - total_width) / 2;
+            
+            for (int col = 0; col < FUNC_KEY_COUNT; col++) {
+                int key_x = start_x + col * (key_width + key_spacing);
+                bool selected = (row == osk_y && col == osk_x);
+                
+                // 更深色的背景，减少视觉干扰
+                SDL_Color bg_color = selected ? 
+                    (SDL_Color){60, 100, 200, 255} : (SDL_Color){35, 35, 35, 255};
+                SDL_Color text_color = selected ? 
+                    (SDL_Color){255, 255, 255, 255} : (SDL_Color){160, 160, 160, 255};
+                
+                SDL_Rect key_rect = {key_x, row_y, key_width, key_height};
+                SDL_FillRect(screen, &key_rect, SDL_MapRGB(screen->format, bg_color.r, bg_color.g, bg_color.b));
+                
+                // 简化边框
+                if (selected) {
+                    SDL_Rect border = {key_x-1, row_y-1, key_width+2, key_height+2};
+                    SDL_FillRect(screen, &border, SDL_MapRGB(screen->format, 200, 200, 200));
+                    SDL_FillRect(screen, &key_rect, SDL_MapRGB(screen->format, bg_color.r, bg_color.g, bg_color.b));
+                }
+                
+                SDL_Surface *text_surface = TTF_RenderUTF8_Blended(mono_font, function_keys[col], text_color);
+                if (text_surface) {
+                    SDL_Rect text_rect = {
+                        key_x + (key_width - text_surface->w) / 2,
+                        row_y + (key_height - text_surface->h) / 2,
+                        text_surface->w, text_surface->h
+                    };
+                    SDL_BlitSurface(text_surface, NULL, screen, &text_rect);
+                    SDL_FreeSurface(text_surface);
+                }
+            }
+        } else { // 普通字符行
+            const char *row_str = osk_layout[row];
+            int key_count = strlen(row_str);
+            int total_width = key_count * key_width + (key_count - 1) * key_spacing;
+            int start_x = (screen->w - total_width) / 2;
+            
+            for (int col = 0; col < key_count; col++) {
+                char key_char = row_str[col];
+                int key_x = start_x + col * (key_width + key_spacing);
+                bool selected = (row == osk_y && col == osk_x);
+                
+                SDL_Color bg_color = selected ? 
+                    (SDL_Color){60, 100, 200, 255} : (SDL_Color){35, 35, 35, 255};
+                SDL_Color text_color = selected ? 
+                    (SDL_Color){255, 255, 255, 255} : (SDL_Color){160, 160, 160, 255};
+                
+                SDL_Rect key_rect = {key_x, row_y, key_width, key_height};
+                SDL_FillRect(screen, &key_rect, SDL_MapRGB(screen->format, bg_color.r, bg_color.g, bg_color.b));
+                
+                if (selected) {
+                    SDL_Rect border = {key_x-1, row_y-1, key_width+2, key_height+2};
+                    SDL_FillRect(screen, &border, SDL_MapRGB(screen->format, 200, 200, 200));
+                    SDL_FillRect(screen, &key_rect, SDL_MapRGB(screen->format, bg_color.r, bg_color.g, bg_color.b));
+                }
+                
+                char key_text[2] = {key_char, 0};
+                SDL_Surface *text_surface = TTF_RenderUTF8_Blended(mono_font, key_text, text_color);
+                if (text_surface) {
+                    SDL_Rect text_rect = {
+                        key_x + (key_width - text_surface->w) / 2,
+                        row_y + (key_height - text_surface->h) / 2,
+                        text_surface->w, text_surface->h
+                    };
+                    SDL_BlitSurface(text_surface, NULL, screen, &text_rect);
+                    SDL_FreeSurface(text_surface);
+                }
             }
         }
+    }
+    
+    // 简化提示信息，放在键盘内部
+    SDL_Color hint_color = {100, 100, 100, 255};
+    SDL_Surface* hint_surface = TTF_RenderUTF8_Blended(mono_font, 
+        "L1: Toggle", hint_color);
+    if (hint_surface) {
+        SDL_Rect hint_rect = {
+            SCALE1(3), 
+            osk_y_start - SCALE1(12), 
+            hint_surface->w, 
+            hint_surface->h
+        };
+        SDL_BlitSurface(hint_surface, NULL, screen, &hint_rect);
+        SDL_FreeSurface(hint_surface);
     }
 }
 static void render_terminal_view(void) {
@@ -303,17 +390,114 @@ static void handle_list_input(void) {
 }
 static void handle_terminal_input(void) {
     TerminalSession* s = &sessions[selected_index];
+    
+    // 键盘导航
     if (PAD_justRepeated(BTN_UP) && osk_y > 0) osk_y--;
     if (PAD_justRepeated(BTN_DOWN) && osk_y < OSK_ROWS - 1) osk_y++;
+    
+    // 处理左右导航
+    int max_col = 0;
+    if (osk_y == 4) { // 功能键行
+        max_col = FUNC_KEY_COUNT - 1;
+    } else {
+        max_col = strlen(osk_layout[osk_y]) - 1;
+    }
+    
     if (PAD_justRepeated(BTN_LEFT) && osk_x > 0) osk_x--;
-    if (PAD_justRepeated(BTN_RIGHT) && osk_x < strlen(osk_layout[osk_y]) - 1) osk_x++;
-    if (PAD_justPressed(BTN_A)) { char ch=osk_layout[osk_y][osk_x]; write(s->ptm_fd, &ch, 1); }
-    if (PAD_justPressed(BTN_Y)) { char ch=' '; write(s->ptm_fd, &ch, 1); }
-    if (PAD_justPressed(BTN_X)) { char bs[]="\x7f"; write(s->ptm_fd, bs, 1); }
-    if (PAD_justPressed(BTN_START)) { char cr[]="\r"; write(s->ptm_fd, cr, 1); }
-    if (PAD_justPressed(BTN_SELECT)) { char tab[]="\t"; write(s->ptm_fd, tab, 1); }
-    if (PAD_justPressed(BTN_L1)) { osk_active = !osk_active; }
-    if (PAD_justPressed(BTN_B)) { current_view = VIEW_LIST; SysUI_SetFullscreen(false); }
+    if (PAD_justRepeated(BTN_RIGHT) && osk_x < max_col) osk_x++;
+    
+    // 边界检查
+    if (osk_x > max_col) osk_x = max_col;
+    
+    // A键：选择当前按键
+    if (PAD_justPressed(BTN_A)) {
+        if (osk_y == 4) { // 功能键行
+            switch (osk_x) {
+                case 0: { // ESC
+                    char esc[] = "\x1b";
+                    write(s->ptm_fd, esc, 1);
+                    break;
+                }
+                case 1: { // TAB
+                    char tab[] = "\t";
+                    write(s->ptm_fd, tab, 1);
+                    break;
+                }
+                case 2: { // RET (Enter)
+                    char enter[] = "\r";
+                    write(s->ptm_fd, enter, 1);
+                    break;
+                }
+                case 3: { // BS (Backspace)
+                    char bs[] = "\x7f";
+                    write(s->ptm_fd, bs, 1);
+                    break;
+                }
+                case 4: { // SPC (Space)
+                    char space[] = " ";
+                    write(s->ptm_fd, space, 1);
+                    break;
+                }
+                case 5: { // UP ARROW
+                    char up[] = "\x1b[A";
+                    write(s->ptm_fd, up, 3);
+                    break;
+                }
+                case 6: { // DOWN ARROW  
+                    char down[] = "\x1b[B";
+                    write(s->ptm_fd, down, 3);
+                    break;
+                }
+                case 7: { // HIDE键盘 - 修复这个功能
+                    osk_active = false;
+                    TLOG("handle_terminal_input: OSK hidden via HIDE key\n");
+                    break;
+                }
+            }
+        } else { // 普通字符
+            char ch = osk_layout[osk_y][osk_x];
+            write(s->ptm_fd, &ch, 1);
+        }
+    }
+    
+    // 快捷键保持不变
+    if (PAD_justPressed(BTN_Y)) { 
+        char space[] = " ";
+        write(s->ptm_fd, space, 1);
+    }
+    
+    if (PAD_justPressed(BTN_X)) { 
+        char bs[] = "\x7f";
+        write(s->ptm_fd, bs, 1);
+    }
+    
+    if (PAD_justPressed(BTN_START)) { 
+        char enter[] = "\r";
+        write(s->ptm_fd, enter, 1);
+    }
+    
+    if (PAD_justPressed(BTN_SELECT)) { 
+        char tab[] = "\t";
+        write(s->ptm_fd, tab, 1);
+    }
+    
+    // L1键切换键盘显示/隐藏 - 修复这个功能
+    if (PAD_justPressed(BTN_L1)) { 
+        osk_active = !osk_active;
+        TLOG("handle_terminal_input: OSK toggled via L1, now %s\n", osk_active ? "visible" : "hidden");
+    }
+    
+    // R1键也可以切换键盘
+    if (PAD_justPressed(BTN_R1)) {
+        osk_active = !osk_active;
+        TLOG("handle_terminal_input: OSK toggled via R1, now %s\n", osk_active ? "visible" : "hidden");
+    }
+    
+    // 返回主界面
+    if (PAD_justPressed(BTN_B)) { 
+        current_view = VIEW_LIST; 
+        SysUI_SetFullscreen(false); 
+    }
 }
 
 // --- 插件生命周期 ---
@@ -366,7 +550,7 @@ static int plugin_init(void* main_screen) {
     }
     
     // 调整字体大小 - 使用更小的尺寸
-    mono_font = TTF_OpenFont(mono_font_path, SCALE1(10)); // 固定使用10而不是TERMINAL_FONT_HEIGHT-2
+    mono_font = TTF_OpenFont(mono_font_path, SCALE1(9)); // 固定使用10而不是TERMINAL_FONT_HEIGHT-2
     if (!mono_font) { 
         TLOG("plugin_init: FAILED to load any font!\n"); 
         return -1; 
