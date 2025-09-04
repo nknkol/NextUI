@@ -83,6 +83,8 @@ extern SDL_Color ALT_BUTTON_TEXT_COLOR;
 // to a structure or something.
 extern float currentratio;
 extern int currentbufferfree;
+extern int avgbufferfree;
+extern int currentbuffertarget;
 extern int currentframecount;
 extern double currentfps;
 extern double currentreqfps;
@@ -138,6 +140,11 @@ enum {
 	ASSET_WIFI_MED,
 	ASSET_WIFI_LOW,
 	ASSET_WIFI_OFF,
+
+	ASSET_BLUETOOTH,
+	ASSET_BLUETOOTH_OFF,
+	ASSET_AUDIO,
+	ASSET_CONTROLLER,
 	
 	ASSET_CHECKCIRCLE,
 	ASSET_LOCK,
@@ -401,9 +408,9 @@ extern PAD_Context pad;
 #define PAD_REPEAT_DELAY	300
 #define PAD_REPEAT_INTERVAL 100
 
-
 #define PAD_init PLAT_initInput
 #define PAD_quit PLAT_quitInput
+#define PAD_update PLAT_updateInput
 #define PAD_poll PLAT_pollInput
 #define PAD_wake PLAT_shouldWake
 
@@ -491,7 +498,9 @@ FILE *PLAT_OpenSettings(const char *filename);
 FILE *PLAT_WriteSettings(const char *filename);
 char* PLAT_findFileInDir(const char *directory, const char *filename);
 void PLAT_initInput(void);
+void PLAT_updateInput(const SDL_Event *event);
 void PLAT_quitInput(void);
+
 void PLAT_pollInput(void);
 int PLAT_shouldWake(void);
 
@@ -578,7 +587,7 @@ void PLAT_scrollTextTexture(
     int w, int h,      // Clipping width and height
     SDL_Color color,
     float transparency,
-	int draw_background  // 功能是是否添加背景（1透明、2白色、3主题色）
+	int draw_background 
 );
 void drawTextWithCache(TTF_Font* font, const char* text, SDL_Color color, SDL_Rect* destRect);
 void PLAT_present();
@@ -629,6 +638,7 @@ int PLAT_pickSampleRate(int requested, int max);
 char* PLAT_getModel(void);
 void PLAT_getOsVersionInfo(char *output_str, size_t max_len);
 void PLAT_updateNetworkStatus();
+bool PLAT_btIsConnected(void);
 int PLAT_isOnline(void);
 typedef enum {
 	SIGNAL_STRENGTH_OFF = -1,
@@ -735,9 +745,9 @@ void PLAT_wifiDisconnect();
 bool PLAT_wifiDiagnosticsEnabled();
 // returns true if diagnostic logging is enabled
 void PLAT_wifiDiagnosticsEnable(bool on);
-// handles platform steps for wifi before/after entering sleep
-void PLAT_wifiPreSleep();
-void PLAT_wifiPostSleep();
+// // handles platform steps for wifi before/after entering sleep
+// void PLAT_wifiPreSleep();
+// void PLAT_wifiPostSleep();
 
 #define WIFI_init PLAT_wifiInit
 #define WIFI_supported PLAT_hasWifi
@@ -753,13 +763,115 @@ void PLAT_wifiPostSleep();
 #define WIFI_disconnect PLAT_wifiDisconnect
 #define WIFI_diagnosticsEnabled PLAT_wifiDiagnosticsEnabled
 #define WIFI_diagnosticsEnable PLAT_wifiDiagnosticsEnable
-#define WIFI_aboutToSleep PLAT_wifiPreSleep
-#define WIFI_wokeFromSleep PLAT_wifiPostSleep
+// #define WIFI_aboutToSleep PLAT_wifiPreSleep
+// #define WIFI_wokeFromSleep PLAT_wifiPostSleep
 ///////////////////////////////
 // --- 插件系统接口 ---
 void PLUGINS_init(void);
 void PLUGINS_quit(void);
 PluginEntry* PLUGINS_get(void); // 返回插件链表的头指针
 NextUI_Plugin* PLUGIN_load(const char* path);
+////////////////////////
+// --- 蓝牙 ---
+typedef enum {
+	BLUETOOTH_NONE = 0,
+	BLUETOOTH_AUDIO,
+	BLUETOOTH_CONTROLLER,
+} BluetoothDeviceType;
+
+struct BT_device {
+	char addr[18]; // MAX_BT_ADDR_LEN
+	char name[249]; // MAX_BT_NAME_LEN
+	BluetoothDeviceType kind;
+};
+
+//struct BT_deviceUUID {
+//	char *uuid;
+//	char *uuid_name;
+//};
+
+struct BT_devicePaired {
+	char remote_addr[18]; // MAX_BT_ADDR_LEN
+	char remote_name[249]; // MAX_BT_NAME_LEN
+	int16_t rssi;
+	bool is_bonded;
+	bool is_connected;
+	//int uuid_len;
+	//BT_deviceUUID *uuids;
+};
+
+// initializes our BT context and synchronizes it with the current system state
+void PLAT_bluetoothInit();
+void PLAT_bluetoothDeinit();
+// returns availability of a usable BT device
+bool PLAT_hasBluetooth();
+// returns if BT devices are currently enabled
+// \note the platform specific implementation of this may vary, could be e.g. systemval entries for trimui
+// \sa PLAT_bluetoothEnable
+bool PLAT_bluetoothEnabled();
+void PLAT_bluetoothEnable(bool on);
+// enable bt diagnostic logging
+bool PLAT_bluetoothDiagnosticsEnabled();
+// returns true if diagnostic logging is enabled
+void PLAT_bluetoothDiagnosticsEnable(bool on);
+// enables or disabled bt discovery.
+void PLAT_bluetoothDiscovery(int on);
+bool PLAT_bluetoothDiscovering();
+// returns the list of available devices
+int PLAT_bluetoothScan(struct BT_device *devices, int max);
+// returns the list of paired devices
+int PLAT_bluetoothPaired(struct BT_devicePaired *devices, int max);
+// pair with the given address
+void PLAT_bluetoothPair(char *addr);
+// unpair from the given address
+void PLAT_bluetoothUnpair(char *addr);
+// connect with the given address
+void PLAT_bluetoothConnect(char *addr);
+// disconnect from the given address
+void PLAT_bluetoothDisconnect(char *addr);
+// returns true if connected to at least one sink
+bool PLAT_bluetoothConnected();
+// init audio stream
+void PLAT_bluetoothStreamInit(int ch, int samplerate);
+// start audio stream
+void PLAT_bluetoothStreamBegin(int buffersize);
+// stop audio stream
+void PLAT_bluetoothStreamEnd();
+// deinit audio stream
+void PLAT_bluetoothStreamQuit();
+// volume getter/setter
+int PLAT_bluetoothVolume();
+void PLAT_bluetoothSetVolume(int vol);
+// watch audio device changes
+typedef enum {
+	DIRWATCH_CREATE = 0,
+	DIRWATCH_DELETE,
+	FILEWATCH_MODIFY,
+	FILEWATCH_DELETE,
+	FILEWATCH_CLOSE_WRITE,
+} WatchEvent;
+void PLAT_bluetoothWatchRegister(void (*cb)(bool, int));
+void PLAT_bluetoothWatchUnregister(void);
+
+#define BT_init PLAT_bluetoothInit
+#define BT_quit PLAT_bluetoothDeinit
+#define BT_supported PLAT_hasBluetooth
+#define BT_enabled PLAT_bluetoothEnabled
+#define BT_enable PLAT_bluetoothEnable
+#define BT_diagnosticsEnabled PLAT_bluetoothDiagnosticsEnabled
+#define BT_diagnosticsEnable PLAT_bluetoothDiagnosticsEnable
+#define BT_discovery PLAT_bluetoothDiscovery
+#define BT_discovering PLAT_bluetoothDiscovering
+#define BT_availableDevices PLAT_bluetoothScan
+#define BT_pairedDevices PLAT_bluetoothPaired
+#define BT_pair PLAT_bluetoothPair
+#define BT_unpair PLAT_bluetoothUnpair
+#define BT_connect PLAT_bluetoothConnect
+#define BT_disconnect PLAT_bluetoothDisconnect
+#define BT_isConnected PLAT_bluetoothConnected
+#define BT_getVolume PLAT_bluetoothVolume
+#define BT_setVolume PLAT_bluetoothSetVolume
+#define BT_registerDeviceWatcher PLAT_bluetoothWatchRegister
+#define BT_removeDeviceWatcher PLAT_bluetoothWatchUnregister
 
 #endif

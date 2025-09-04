@@ -72,6 +72,7 @@ typedef struct
 	bool showMenuAnimations;
 	bool showMenuTransitions;
 	bool showRecents;
+	bool showTools;
 	bool showGameArt;
 	bool romsUseFolderBackground;
 	bool showQuickSwitcherUi;
@@ -96,6 +97,10 @@ typedef struct
 	bool wifiDiagnostics;
 	// ADDED: Language setting
 	char language[8];
+	bool bluetooth;
+	bool bluetoothDiagnostics;
+	int bluetoothSamplerateLimit;
+
 } NextUISettings;
 
 #define CFG_DEFAULT_FONT_ID 1  // Next
@@ -129,6 +134,11 @@ typedef struct
 #define CFG_DEFAULT_WIFI_DIAG false
 // ADDED: Default language
 #define CFG_DEFAULT_LANGUAGE "en"
+#define CFG_DEFAULT_SHOWTOOLS true
+#define CFG_DEFAULT_BLUETOOTH false
+#define CFG_DEFAULT_BLUETOOTH_DIAG false
+#define CFG_DEFAULT_BLUETOOTH_MAXRATE 48000
+
 void CFG_init(FontLoad_callback_t fontCallback, ColorSet_callback_t ccb);
 void CFG_print(void);
 void CFG_get(const char *key, char * value);
@@ -172,6 +182,9 @@ void CFG_setThumbnailRadius(int radius);
 // Show/hide recently played in the main menu.
 bool CFG_getShowRecents(void);
 void CFG_setShowRecents(bool show);
+// Show/hide tools folder in the main menu.
+bool CFG_getShowTools(void);
+void CFG_setShowTools(bool show);
 // Show/hide game art in the main menu.
 bool CFG_getShowGameArt(void);
 void CFG_setShowGameArt(bool show);
@@ -219,6 +232,15 @@ void CFG_quit(void);
 // ADDED: Function prototypes for language setting
 const char* CFG_getLanguage(void);
 void CFG_setLanguage(const char* lang);
+// Bluetooth on/off (if available)
+bool CFG_getBluetooth(void);
+void CFG_setBluetooth(bool on);
+// BT diagnostic logging on/off
+bool CFG_getBluetoothDiagnostics(void);
+void CFG_setBluetoothDiagnostics(bool on);
+// BT maximum sample rate to request
+int CFG_getBluetoothSamplingrateLimit(void);
+void CFG_setBluetoothSamplingrateLimit(int value);
 
 void CFG_sync(void);
 void CFG_quit(void);

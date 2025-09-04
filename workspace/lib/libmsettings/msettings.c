@@ -1,4 +1,4 @@
-// tg5040
+// tg5040 单
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -140,10 +140,44 @@ typedef struct SettingsV9 {
 	int jack; 
 } SettingsV9;
 
+typedef struct SettingsV10 {
+	int version; // future proofing
+	int brightness;
+	int colortemperature;
+	int headphones;
+	int speaker;
+	int mute;
+	int contrast;
+	int saturation;
+	int exposure;
+	int toggled_brightness;
+	int toggled_colortemperature;
+	int toggled_contrast;
+	int toggled_saturation;
+	int toggled_exposure;
+	int toggled_volume;
+	int disable_dpad_on_mute;
+	int emulate_joystick_on_mute;
+	int turbo_a;
+	int turbo_b;
+	int turbo_x;
+	int turbo_y;
+	int turbo_l1;
+	int turbo_l2;
+	int turbo_r1;
+	int turbo_r2;
+	int unused[2]; // for future use
+	// NOTE: doesn't really need to be persisted but still needs to be shared
+	int jack; 
+	int bluetooth; 
+} SettingsV10;
+
 // When incrementing SETTINGS_VERSION, update the Settings typedef and add
 // backwards compatibility to InitSettings!
-#define SETTINGS_VERSION 9
-typedef SettingsV9 Settings;
+// #define SETTINGS_VERSION 9
+// typedef SettingsV9 Settings;
+#define SETTINGS_VERSION 10
+typedef SettingsV10 Settings;
 static Settings DefaultSettings = {
 	.version = SETTINGS_VERSION,
 	.brightness = SETTINGS_DEFAULT_BRIGHTNESS,
@@ -171,6 +205,7 @@ static Settings DefaultSettings = {
 	.turbo_r1 = 0,
 	.turbo_r2 = 0,
 	.jack = 0,
+	.bluetooth = 0,
 };
 static Settings* settings;
 
@@ -229,6 +264,174 @@ int peekVersion(const char *filename) {
 
 static int is_brick = 0;
 
+// void InitSettings(void) {	
+// 	char* device = getenv("DEVICE");
+// 	is_brick = exactMatch("brick", device);
+	
+// 	sprintf(SettingsPath, "%s/msettings.bin", getenv("USERDATA_PATH"));
+	
+// 	shm_fd = shm_open(SHM_KEY, O_RDWR | O_CREAT | O_EXCL, 0644); // see if it exists
+// 	if (shm_fd==-1 && errno==EEXIST) { // already exists
+// 		// puts("Settings client");
+// 		shm_fd = shm_open(SHM_KEY, O_RDWR, 0644);
+// 		settings = mmap(NULL, shm_size, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+// 	}
+// 	else { // host
+// 		// puts("Settings host"); // keymon
+// 		is_host = 1;
+// 		// we created it so set initial size and populate
+// 		ftruncate(shm_fd, shm_size);
+// 		settings = mmap(NULL, shm_size, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+
+// 		// peek the first int from fd, it's the version
+// 		int version = peekVersion(SettingsPath);
+// 		if(version > 0) {
+// 			int fd = open(SettingsPath, O_RDONLY);
+// 			if (fd>=0) {
+// 				if (version == SETTINGS_VERSION) {
+// 					read(fd, settings, shm_size);
+// 				}
+// 				else {
+// 					// initialize with defaults
+// 					memcpy(settings, &DefaultSettings, shm_size);
+
+// 					// overwrite with migrated data
+// 					if(version==8) {
+// 						printf("Found settings v8.\n");
+// 						SettingsV8 old;
+// 						read(fd, &old, sizeof(SettingsV8));
+
+// 						settings->toggled_volume = old.toggled_volume;
+
+// 						settings->toggled_brightness = old.toggled_brightness;
+// 						settings->toggled_colortemperature = old.toggled_colortemperature;
+// 						settings->toggled_contrast = old.toggled_contrast;
+// 						settings->toggled_exposure = old.toggled_exposure;
+// 						settings->toggled_saturation = old.toggled_saturation;
+
+// 						settings->saturation = old.saturation;
+// 						settings->contrast = old.contrast;
+// 						settings->exposure = old.exposure;
+
+// 						settings->colortemperature = old.colortemperature;
+
+// 						settings->brightness = old.brightness;
+// 						settings->headphones = old.headphones;
+// 						settings->speaker = old.speaker;
+// 						settings->mute = old.mute;
+// 						settings->jack = old.jack;
+// 					}
+// 					else if(version==7) {
+// 						printf("Found settings v7.\n");
+// 						SettingsV7 old;
+// 						read(fd, &old, sizeof(SettingsV7));
+
+// 						// muted* -> toggled*
+// 						settings->toggled_brightness = old.mutedbrightness;
+// 						settings->toggled_colortemperature = old.mutedcolortemperature;
+// 						settings->toggled_contrast = old.mutedcontrast;
+// 						settings->toggled_exposure = old.mutedexposure;
+// 						settings->toggled_saturation = old.mutedsaturation;
+
+// 						settings->saturation = old.saturation;
+// 						settings->contrast = old.contrast;
+// 						settings->exposure = old.exposure;
+
+// 						settings->colortemperature = old.colortemperature;
+
+// 						settings->brightness = old.brightness;
+// 						settings->headphones = old.headphones;
+// 						settings->speaker = old.speaker;
+// 						settings->mute = old.mute;
+// 						settings->jack = old.jack;
+// 					}
+// 					else if(version==6) {
+// 						printf("Found settings v6.\n");
+// 						SettingsV6 old;
+// 						read(fd, &old, sizeof(SettingsV6));
+
+// 						settings->saturation = old.saturation;
+// 						settings->contrast = old.contrast;
+// 						settings->exposure = old.exposure;
+
+// 						settings->colortemperature = old.colortemperature;
+
+// 						settings->brightness = old.brightness;
+// 						settings->headphones = old.headphones;
+// 						settings->speaker = old.speaker;
+// 						settings->mute = old.mute;
+// 						settings->jack = old.jack;
+// 					}
+// 					else if(version==5) {
+// 						printf("Found settings v5.\n");
+// 						SettingsV5 old;
+// 						read(fd, &old, sizeof(SettingsV5));
+
+// 						settings->colortemperature = old.colortemperature;
+
+// 						settings->brightness = old.brightness;
+// 						settings->headphones = old.headphones;
+// 						settings->speaker = old.speaker;
+// 						settings->mute = old.mute;
+// 						settings->jack = old.jack;
+// 					}
+// 					else if(version==4) {
+// 						printf("Found settings v4.\n");
+// 						SettingsV4 old;
+// 						read(fd, &old, sizeof(SettingsV4));
+
+// 						// colortemp was 0-20 here
+// 						settings->colortemperature = old.colortemperature * 2;
+
+// 						settings->brightness = old.brightness;
+// 						settings->headphones = old.headphones;
+// 						settings->speaker = old.speaker;
+// 						settings->mute = old.mute;
+// 						settings->jack = old.jack;
+// 					}
+// 					else if(version==3) {
+// 						printf("Found settings v3.\n");
+// 						SettingsV3 old;
+// 						read(fd, &old, sizeof(SettingsV3));
+
+// 						settings->brightness = old.brightness;
+// 						settings->headphones = old.headphones;
+// 						settings->speaker = old.speaker;
+// 						settings->mute = old.mute;
+// 						settings->jack = old.jack;
+// 					}
+// 					else {
+// 						printf("Found unsupported settings version: %i.\n", version);
+// 					}
+// 				}
+				
+// 				close(fd);
+// 			}
+// 			else {
+// 				// load defaults
+// 				memcpy(settings, &DefaultSettings, shm_size);
+// 			}
+// 		}
+// 		else {
+// 			// load defaults
+// 			memcpy(settings, &DefaultSettings, shm_size);
+// 		}
+		
+// 		// these shouldn't be persisted
+// 		// settings->jack = 0;
+// 		// settings->hdmi = 0;
+// 		settings->mute = 0;
+// 	}
+// 	// printf("brightness: %i\nspeaker: %i \n", settings->brightness, settings->speaker);
+	 
+// 	system("amixer sset 'Headphone' 0"); // 100%
+// 	system("amixer sset 'digital volume' 0"); // 100%
+// 	system("amixer sset 'DAC Swap' Off"); // Fix L/R channels
+// 	// volume is set with 'digital volume'
+
+// 	// This will implicitly update all other settings based on FN switch state
+// 	SetMute(settings->mute);
+// }
 void InitSettings(void) {	
 	char* device = getenv("DEVICE");
 	is_brick = exactMatch("brick", device);
@@ -261,7 +464,43 @@ void InitSettings(void) {
 					memcpy(settings, &DefaultSettings, shm_size);
 
 					// overwrite with migrated data
-					if(version==8) {
+					if(version==9) {
+						printf("Found settings v9.\n");
+						SettingsV9 old;
+						read(fd, &old, sizeof(SettingsV9));
+
+						settings-> disable_dpad_on_mute = old.disable_dpad_on_mute;
+						settings-> emulate_joystick_on_mute = old.emulate_joystick_on_mute;
+						settings-> turbo_a = old.turbo_a;
+						settings-> turbo_b = old.turbo_b;
+						settings-> turbo_x = old.turbo_x;
+						settings-> turbo_y = old.turbo_y;
+						settings-> turbo_l1 = old.turbo_l1;
+						settings-> turbo_l2 = old.turbo_l2;
+						settings-> turbo_r1 = old.turbo_r1;
+						settings-> turbo_r2 = old.turbo_r2;
+
+						settings->toggled_volume = old.toggled_volume;
+
+						settings->toggled_brightness = old.toggled_brightness;
+						settings->toggled_colortemperature = old.toggled_colortemperature;
+						settings->toggled_contrast = old.toggled_contrast;
+						settings->toggled_exposure = old.toggled_exposure;
+						settings->toggled_saturation = old.toggled_saturation;
+
+						settings->saturation = old.saturation;
+						settings->contrast = old.contrast;
+						settings->exposure = old.exposure;
+
+						settings->colortemperature = old.colortemperature;
+
+						settings->brightness = old.brightness;
+						settings->headphones = old.headphones;
+						settings->speaker = old.speaker;
+						settings->mute = old.mute;
+						settings->jack = old.jack;
+					}
+					else if(version==8) {
 						printf("Found settings v8.\n");
 						SettingsV8 old;
 						read(fd, &old, sizeof(SettingsV8));
@@ -384,12 +623,12 @@ void InitSettings(void) {
 		
 		// these shouldn't be persisted
 		// settings->jack = 0;
-		// settings->hdmi = 0;
 		settings->mute = 0;
 	}
 	// printf("brightness: %i\nspeaker: %i \n", settings->brightness, settings->speaker);
-	 
-	system("amixer sset 'Headphone' 0"); // 100%
+
+	system("amixer");
+	system("amixer sset 'Headphone' 0");	  // 100%
 	system("amixer sset 'digital volume' 0"); // 100%
 	system("amixer sset 'DAC Swap' Off"); // Fix L/R channels
 	// volume is set with 'digital volume'
@@ -424,12 +663,21 @@ int GetColortemp(void) { // 0-10
 int GetVolume(void) { // 0-20
 	if (settings->mute && GetMutedVolume() != SETTINGS_DEFAULT_MUTE_NO_CHANGE)
 		return GetMutedVolume();
-	return settings->jack ? settings->headphones : settings->speaker;
+	
+	if(settings->jack || settings->bluetooth)
+		return settings->headphones;
+
+	return settings->speaker;
 }
 // monitored and set by thread in keymon
 int GetJack(void) {
 	return settings->jack;
 }
+// monitored and set by thread in bt_daemon
+int GetBluetooth(void) {
+	return settings->bluetooth;
+}
+
 int GetHDMI(void) {	
 	// printf("GetHDMI() %i\n", settings->hdmi); fflush(stdout);
 	// return settings->hdmi;
@@ -530,10 +778,11 @@ void SetColortemp(int value) {
 void SetVolume(int value) { // 0-20
 	if (settings->mute) 
 		return SetRawVolume(scaleVolume(GetMutedVolume()));
-	// if (settings->hdmi) return;
 	
-	if (settings->jack) settings->headphones = value;
-	else settings->speaker = value;
+	if (settings->jack || settings->bluetooth)
+		settings->headphones = value;
+	else
+		settings->speaker = value;
 
 	SetRawVolume(scaleVolume(value));
 	SaveSettings();
@@ -545,15 +794,15 @@ void SetJack(int value) {
 	settings->jack = value;
 	SetVolume(GetVolume());
 }
-void SetHDMI(int value) {
-	// printf("SetHDMI(%i)\n", value); fflush(stdout);
+void SetBluetooth(int value) {
+	printf("SetBluetooth(%i)\n", value); fflush(stdout);
 	
-	// if (settings->hdmi!=value) system("/usr/lib/autostart/common/055-hdmi-check");
-	
-	// settings->hdmi = value;
-	// if (value) SetRawVolume(100); // max
-	// else SetVolume(GetVolume()); // restore
+	settings->bluetooth = value;
+	SetVolume(GetVolume());
 }
+
+void SetHDMI(int value){};
+
 void SetMute(int value) {
 	settings->mute = value;
 	if (settings->mute) {
@@ -1013,17 +1262,50 @@ void SetRawColortemp(int val) { // 0 - 255
 	}
 }
 void SetRawVolume(int val) { // 0-100
-	printf("SetRawVolume(%i)\n", val); fflush(stdout);
 	if (settings->mute) val = scaleVolume(GetMutedVolume());
 	
-	// Note: 'digital volume' mapping is reversed
-	char cmd[256];
-	sprintf(cmd, "amixer sset 'digital volume' -M %i%% &> /dev/null", 100-val);
-	system(cmd);
-	
-	// Setting just 'digital volume' to 0 still plays audio quietly. Also set DAC volume to 0
-	if (val == 0) system("amixer sset 'DAC volume' 0 &> /dev/null");
-	else system("amixer sset 'DAC volume' 160 &> /dev/null"); // 160=0dB=max for 'DAC volume'
+	// bluetooth: set volkume on the device directly
+	if(GetBluetooth()) {
+		// Get A2DP mixer control name
+		FILE *fp = popen("amixer | grep \"Simple mixer control\" | grep A2DP | head -n1", "r");
+		if (!fp) return;
+
+		char line[256];
+		char control[128] = {0};
+
+		
+		if (fgets(line, sizeof(line), fp)) {
+			// Example line: Simple mixer control 'AirPods Pro A2DP',0
+			char *start = strchr(line, '\'');
+			char *end = strrchr(line, '\'');
+
+			if (start && end && end > start) {
+				size_t len = end - start - 1;
+				if (len < sizeof(control)) {
+					strncpy(control, start + 1, len);
+					control[len] = '\0';
+				}
+			}
+		}
+		pclose(fp);
+
+		if (control[0]) {
+			char cmd[256];
+			//sprintf(cmd, "amixer sset '%s' -M %i%% &> /dev/null", control, val);
+			sprintf(cmd, "amixer sset '%s' -M %i%%", control, val);
+			system(cmd);
+		}
+	}
+	else {
+		// Note: 'digital volume' mapping is reversed
+		char cmd[256];
+		sprintf(cmd, "amixer sset 'digital volume' -M %i%% &> /dev/null", 100-val);
+		system(cmd);
+
+		// Setting just 'digital volume' to 0 still plays audio quietly. Also set DAC volume to 0
+		if (val == 0) system("amixer sset 'DAC volume' 0 &> /dev/null");
+		else system("amixer sset 'DAC volume' 160 &> /dev/null"); // 160=0dB=max for 'DAC volume'
+	}
 
 	// TODO: unfortunately doing it this way creating a linker nightmare
 	// struct mixer *mixer = mixer_open(0);

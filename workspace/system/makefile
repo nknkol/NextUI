@@ -20,6 +20,8 @@ all:
 	cd ./syncsettings && make
 	cd ./wifimanager && make
 	cd ./show && make
+	cd ./rfkill && make
+	cd ./btdaemon && make
 	# cd ./compositor && make 
 
 clean:
@@ -29,4 +31,5 @@ clean:
 	cd ./nextval && make clean
 	cd ./syncsettings && make clean
 	cd ./wifimanager && make clean
+	cd ./btdaemon && make clean
 	cd ./show && make clean

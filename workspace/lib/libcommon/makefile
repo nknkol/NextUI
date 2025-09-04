@@ -29,7 +29,7 @@ CC = $(CROSS_COMPILE)gcc
 CFLAGS += -std=gnu99 -DPLATFORM=\"$(PLATFORM)\" -Werror -fpic -I. -I../system/libmsettings -I$(PREFIX_LOCAL)/include
 
 # 定义链接标志
-LDFLAGS = -s -lsamplerate
+LDFLAGS = -s -lsamplerate -lbtmg -lglib-2.0 -lgio-2.0 -lshared-mainloop -lbluetooth-internal -lasound -ljson-c
 # ----------------------------------------------------
 
 # build 目标：编译、链接并“安装”到本地目录

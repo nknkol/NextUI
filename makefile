@@ -135,6 +135,11 @@ system:
 	cp $(SRC_SYS_DIR)/gametimectl/build/$(PLATFORM)/gametimectl.elf $(SYSTEM_BIN)/
 	cp $(SRC_SYS_DIR)/batmon/build/$(PLATFORM)/batmon.elf $(SYSTEM_BIN)/
 
+	cp $(SRC_SYS_DIR)/rfkill/rfkill.elf $(SYSTEM_BIN)/
+	# bluetooth
+	cp $(SRC_LIB_DIR)/btmanager/build/nextui.upgrade_bluez.pakz ./build/BASE/
+	cp $(SRC_SYS_DIR)/btdaemon/bt_daemon $(SYSTEM_BIN)/
+
 
 # 使用列表和 foreach 循环简化核心文件的复制过程
 STOCK_CORES  := fceumm gambatte gpsp picodrive snes9x pcsx_rearmed
@@ -178,7 +183,8 @@ tools:
 	cp $(SRC_TOOL_DIR)/minput/build/$(PLATFORM)/minput.elf $(EXTRAS_TOOLS)/Input.pak/
 	# cp $(SRC_TOOL_DIR)/battery/build/$(PLATFORM)/battery.elf $(EXTRAS_TOOLS)/Battery.pak/
 	# cp $(SRC_TOOL_DIR)/gametime/build/$(PLATFORM)/gametime.elf $(EXTRAS_TOOLS)/Game\ Tracker.pak/
-	# cp $(SRC_TOOL_DIR)/settings/build/$(PLATFORM)/settings.elf $(EXTRAS_TOOLS)/Settings.pak/
+	cp $(SRC_TOOL_DIR)/settings/build/$(PLATFORM)/settings.elf $(EXTRAS_TOOLS)/Settings.pak/
+	cp $(SRC_TOOL_DIR)/settingsbt/build/$(PLATFORM)/settingsbt.elf $(EXTRAS_TOOLS)/Settingsbt.pak/
 	# cp $(SRC_TOOL_DIR)/ledcontrol/build/$(PLATFORM)/ledcontrol.elf $(EXTRAS_TOOLS)/LedControl.pak/
 	cp $(SRC_TOOL_DIR)/bootlogo/build/$(PLATFORM)/bootlogo.elf $(EXTRAS_TOOLS)/Bootlogo.pak/
 
@@ -206,7 +212,6 @@ EXCLUDE_PATTERNS := \
     /EXTRAS/Tools/Clock.pak \
 	/EXTRAS/Tools/Battery.pak \
 	/EXTRAS/Tools/Game\ Tracker.pak \
-	/EXTRAS/Tools/Settings.pak \
 	/EXTRAS/Tools/LedControl.pak
 # 使用 foreach 函数，为列表中的每一项生成一个 --exclude='...' 参数
 EXCLUDE_ARGS := $(foreach pattern,$(EXCLUDE_PATTERNS),--exclude='$(pattern)')

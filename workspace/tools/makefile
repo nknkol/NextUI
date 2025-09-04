@@ -19,7 +19,8 @@ all:
 	# cd ./gametime && make
 	# cd ./ledcontrol && make
 	cd ./minput && make
-	# cd ./settings && make
+	cd ./settings && make
+	cd ./settingsbt && make
 
 	# cd ./demo1_overlay && make 
 	# cd ./demo2_background && make

@@ -5,4 +5,4 @@ USERDATA_PATH="$SDCARD_PATH/.userdata"
 SHARED_USERDATA_PATH="$USERDATA_PATH/shared"
 
 cd $(dirname "$0")
-./settings.elf > settingsbt.log 2>&1
+./settingsbt.elf > settings.log 2>&1

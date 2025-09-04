@@ -10,6 +10,7 @@ endif
 .PHONY: all
 
 all:
+	cd ./btmanager && make all
 	cd ./libmsettings && make
 	cd ./libwifid && make
 	cd ./libwifimg && make

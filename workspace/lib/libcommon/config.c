@@ -43,6 +43,7 @@ void CFG_defaults(NextUISettings *cfg)
         .showMenuAnimations = CFG_DEFAULT_SHOWMENUANIMATIONS,
         .showMenuTransitions = CFG_DEFAULT_SHOWMENUTRANSITIONS,
         .showRecents = CFG_DEFAULT_SHOWRECENTS,
+        .showTools = CFG_DEFAULT_SHOWTOOLS,
         .showGameArt = CFG_DEFAULT_SHOWGAMEART,
         .gameSwitcherScaling = CFG_DEFAULT_GAMESWITCHERSCALING,
         .defaultView = CFG_DEFAULT_VIEW,
@@ -60,12 +61,12 @@ void CFG_defaults(NextUISettings *cfg)
 
         .wifi = CFG_DEFAULT_WIFI,
         .wifiDiagnostics = CFG_DEFAULT_WIFI_DIAG,
+        .bluetooth = CFG_DEFAULT_BLUETOOTH,
+        .bluetoothDiagnostics = CFG_DEFAULT_BLUETOOTH_DIAG,
+        .bluetoothSamplerateLimit = CFG_DEFAULT_BLUETOOTH_MAXRATE,
     };
-    
-    // 新增：设置默认语言
     strncpy(defaults.language, CFG_DEFAULT_LANGUAGE, sizeof(defaults.language) -1);
     defaults.language[sizeof(defaults.language) -1] = '\0';
-
 
     *cfg = defaults;
 }
@@ -169,6 +170,11 @@ void CFG_init(FontLoad_callback_t cb, ColorSet_callback_t ccb)
                 CFG_setShowRecents((bool)temp_value);
                 continue;
             }
+            if (sscanf(line, "tools=%i", &temp_value) == 1)
+            {
+                CFG_setShowTools((bool)temp_value);
+                continue;
+            }
             if (sscanf(line, "gameart=%i", &temp_value) == 1)
             {
                 CFG_setShowGameArt((bool)temp_value);
@@ -239,17 +245,30 @@ void CFG_init(FontLoad_callback_t cb, ColorSet_callback_t ccb)
                 CFG_setWifiDiagnostics(temp_value);
                 continue;
             }
-            // 新增：读取语言设置
             char temp_lang[8];
-            if (sscanf(line, "language=%7s", temp_lang) == 1) {
+            if (sscanf(line, "language=%7s", temp_lang) == 1)
+            {
                 strncpy(settings.language, temp_lang, sizeof(settings.language) - 1);
                 settings.language[sizeof(settings.language) - 1] = '\0';
+            }
+            if (sscanf(line, "bluetooth=%i", &temp_value) == 1)
+            {
+                CFG_setBluetooth(temp_value);
+                continue;
+            }
+            if (sscanf(line, "btDiagnostics=%i", &temp_value) == 1)
+            {
+                CFG_setBluetoothDiagnostics(temp_value);
+                continue;
+            }
+            if (sscanf(line, "btMaxRate=%i", &temp_value) == 1)
+            {
+                CFG_setBluetoothSamplingrateLimit(temp_value);
                 continue;
             }
         }
         fclose(file);
     }
-    // 新增：在加载配置后初始化语言模块
     Lang_Init(settings.language);
 
     // load gfx related stuff until we drop the indirection
@@ -264,12 +283,12 @@ void CFG_init(FontLoad_callback_t cb, ColorSet_callback_t ccb)
     if (!fontLoaded)
         CFG_setFontId(CFG_getFontId());
 }
-// 新增函数
+
 const char* CFG_getLanguage(void) {
     return settings.language;
 }
 
-// 新增函数
+
 void CFG_setLanguage(const char* lang) {
     if (lang && strlen(lang) < sizeof(settings.language)) {
         strncpy(settings.language, lang, sizeof(settings.language));
@@ -285,16 +304,14 @@ int CFG_getFontId(void)
 
 void CFG_setFontId(int id)
 {
-    // 将 clamp 的上限从 2 改为 3 (或更高，取决于你未来可能添加的字体数量)
-    // 或者直接改为你的新字体最大ID，这里是 2。
     settings.font = clamp(id, 0, 2);
 
     char *fontPath;
     if (settings.font == 1)
         fontPath = RES_PATH "/font1.ttf";
-    else if (settings.font == 2) // 添加这个 else if 分支
+    else if (settings.font == 2) 
         fontPath = RES_PATH "/font3.ttf";
-    else // 原来的 font2.ttf 逻辑变为 else
+    else 
         fontPath = RES_PATH "/font2.ttf";
 
     if(settings.onFontChange)
@@ -372,6 +389,7 @@ uint32_t CFG_getScreenTimeoutSecs(void)
 void CFG_setScreenTimeoutSecs(uint32_t secs)
 {
     settings.screenTimeoutSecs = secs;
+    CFG_sync();
 }
 
 uint32_t CFG_getSuspendTimeoutSecs(void)
@@ -382,6 +400,7 @@ uint32_t CFG_getSuspendTimeoutSecs(void)
 void CFG_setSuspendTimeoutSecs(uint32_t secs)
 {
     settings.suspendTimeoutSecs = secs;
+    CFG_sync();
 }
 
 bool CFG_getShowClock(void)
@@ -392,6 +411,7 @@ bool CFG_getShowClock(void)
 void CFG_setShowClock(bool show)
 {
     settings.showClock = show;
+    CFG_sync();
 }
 
 bool CFG_getClock24H(void)
@@ -402,6 +422,7 @@ bool CFG_getClock24H(void)
 void CFG_setClock24H(bool is24)
 {
     settings.clock24h = is24;
+    CFG_sync();
 }
 
 bool CFG_getShowBatteryPercent(void)
@@ -412,6 +433,7 @@ bool CFG_getShowBatteryPercent(void)
 void CFG_setShowBatteryPercent(bool show)
 {
     settings.showBatteryPercent = show;
+    CFG_sync();
 }
 
 bool CFG_getMenuAnimations(void)
@@ -422,6 +444,7 @@ bool CFG_getMenuAnimations(void)
 void CFG_setMenuAnimations(bool show)
 {
     settings.showMenuAnimations = show;
+    CFG_sync();
 }
 
 bool CFG_getMenuTransitions(void)
@@ -432,6 +455,7 @@ bool CFG_getMenuTransitions(void)
 void CFG_setMenuTransitions(bool show)
 {
     settings.showMenuTransitions = show;
+    CFG_sync();
 }
 
 int CFG_getThumbnailRadius(void)
@@ -442,6 +466,7 @@ int CFG_getThumbnailRadius(void)
 void CFG_setThumbnailRadius(int radius)
 {
     settings.thumbRadius = clamp(radius, 0, 24);
+    CFG_sync();
 }
 
 bool CFG_getShowRecents(void)
@@ -452,6 +477,18 @@ bool CFG_getShowRecents(void)
 void CFG_setShowRecents(bool show)
 {
     settings.showRecents = show;
+        CFG_sync();
+}
+
+bool CFG_getShowTools(void)
+{
+    return settings.showTools;
+}
+
+void CFG_setShowTools(bool show)
+{
+    settings.showTools = show;
+    CFG_sync();
 }
 
 bool CFG_getShowGameArt(void)
@@ -462,6 +499,7 @@ bool CFG_getShowGameArt(void)
 void CFG_setShowGameArt(bool show)
 {
     settings.showGameArt = show;
+    CFG_sync();
 }
 
 bool CFG_getRomsUseFolderBackground(void)
@@ -472,6 +510,7 @@ bool CFG_getRomsUseFolderBackground(void)
 void CFG_setRomsUseFolderBackground(bool folder)
 {
     settings.romsUseFolderBackground = folder;
+    CFG_sync();
 }
 
 int CFG_getGameSwitcherScaling(void)
@@ -482,6 +521,7 @@ int CFG_getGameSwitcherScaling(void)
 void CFG_setGameSwitcherScaling(int enumValue)
 {
     settings.gameSwitcherScaling = clamp(enumValue, 0, GFX_SCALE_NUM_OPTIONS);
+    CFG_sync();
 }
 
 bool CFG_getHaptics(void)
@@ -492,6 +532,7 @@ bool CFG_getHaptics(void)
 void CFG_setHaptics(bool enable)
 {
     settings.haptics = enable;
+    CFG_sync();
 }
 
 int CFG_getSaveFormat(void)
@@ -502,6 +543,7 @@ int CFG_getSaveFormat(void)
 void CFG_setSaveFormat(int f)
 {
     settings.saveFormat = f;
+    CFG_sync();
 }
 
 int CFG_getStateFormat(void)
@@ -512,6 +554,7 @@ int CFG_getStateFormat(void)
 void CFG_setStateFormat(int f)
 {
     settings.stateFormat = f;
+    CFG_sync();
 }
 
 bool CFG_getMuteLEDs(void)
@@ -522,6 +565,7 @@ bool CFG_getMuteLEDs(void)
 void CFG_setMuteLEDs(bool on)
 {
     settings.muteLeds = on;
+    CFG_sync();
 }
 
 double CFG_getGameArtWidth(void)
@@ -532,6 +576,7 @@ double CFG_getGameArtWidth(void)
 void CFG_setGameArtWidth(double zeroToOne)
 {
     settings.gameArtWidth = clampd(zeroToOne, 0.0, 1.0);
+    CFG_sync();
 }
 
 bool CFG_getWifi(void)
@@ -542,6 +587,7 @@ bool CFG_getWifi(void)
 void CFG_setWifi(bool on)
 {
     settings.wifi = on;
+    CFG_sync();
 }
 
 int CFG_getDefaultView(void)
@@ -552,6 +598,7 @@ int CFG_getDefaultView(void)
 void CFG_setDefaultView(int view)
 {
     settings.defaultView = view;
+    CFG_sync();
 }
 
 bool CFG_getShowQuickswitcherUI(void)
@@ -562,6 +609,7 @@ bool CFG_getShowQuickswitcherUI(void)
 void CFG_setShowQuickswitcherUI(bool on)
 {
     settings.showQuickSwitcherUi = on;
+    CFG_sync();
 }
 
 bool CFG_getWifiDiagnostics(void)
@@ -572,6 +620,40 @@ bool CFG_getWifiDiagnostics(void)
 void CFG_setWifiDiagnostics(bool on)
 {
     settings.wifiDiagnostics = on;
+        CFG_sync();
+}
+
+bool CFG_getBluetooth(void)
+{
+    return settings.bluetooth;
+}
+
+void CFG_setBluetooth(bool on)
+{
+    settings.bluetooth = on;
+    CFG_sync();
+}
+
+bool CFG_getBluetoothDiagnostics(void)
+{
+    return settings.bluetoothDiagnostics;
+}
+
+void CFG_setBluetoothDiagnostics(bool on)
+{
+    settings.bluetoothDiagnostics = on;
+    CFG_sync();
+}
+
+int CFG_getBluetoothSamplingrateLimit(void)
+{
+    return settings.bluetoothSamplerateLimit;
+}
+
+void CFG_setBluetoothSamplingrateLimit(int value)
+{
+    settings.bluetoothSamplerateLimit = value;
+    CFG_sync();
 }
 
 void CFG_get(const char *key, char *value)
@@ -636,6 +718,10 @@ void CFG_get(const char *key, char *value)
     {
         sprintf(value, "%i", CFG_getShowRecents());
     }
+    else if (strcmp(key, "tools") == 0)
+    {
+        sprintf(value, "%i", CFG_getShowTools());
+    }
     else if (strcmp(key, "gameart") == 0)
     {
         sprintf(value, "%i", CFG_getShowGameArt());
@@ -688,6 +774,18 @@ void CFG_get(const char *key, char *value)
     {
         sprintf(value, "%i", (int)(CFG_getWifiDiagnostics()));
     }
+    else if (strcmp(key, "bluetooth") == 0)
+    {
+        sprintf(value, "%i", (int)(CFG_getBluetooth()));
+    }
+    else if (strcmp(key, "btDiagnostics") == 0)
+    {
+        sprintf(value, "%i", (int)(CFG_getBluetoothDiagnostics()));
+    }
+    else if (strcmp(key, "btMaxRate") == 0)
+    {
+        sprintf(value, "%i", CFG_getBluetoothSamplingrateLimit());
+    }
 
     // meta, not a real setting
     else if (strcmp(key, "fontpath") == 0)
@@ -730,6 +828,7 @@ void CFG_sync(void)
     fprintf(file, "menuanim=%i\n", settings.showMenuAnimations);
     fprintf(file, "menutransitions=%i\n", settings.showMenuTransitions);
     fprintf(file, "recents=%i\n", settings.showRecents);
+    fprintf(file, "tools=%i\n", settings.showTools);
     fprintf(file, "gameart=%i\n", settings.showGameArt);
     fprintf(file, "screentimeout=%i\n", settings.screenTimeoutSecs);
     fprintf(file, "suspendTimeout=%i\n", settings.suspendTimeoutSecs);
@@ -745,6 +844,10 @@ void CFG_sync(void)
     fprintf(file, "quickSwitcherUi=%i\n", settings.showQuickSwitcherUi);
     fprintf(file, "wifiDiagnostics=%i\n", settings.wifiDiagnostics);
     fprintf(file, "language=%s\n", settings.language);
+    fprintf(file, "bluetooth=%i\n", settings.bluetooth);
+    fprintf(file, "btDiagnostics=%i\n", settings.bluetoothDiagnostics);
+    fprintf(file, "btMaxRate=%i\n", settings.bluetoothSamplerateLimit);
+
     fclose(file);
 }
 
@@ -766,6 +869,7 @@ void CFG_print(void)
     printf("\t\"menuanim\": %i,\n", settings.showMenuAnimations);
     printf("\t\"menutransitions\": %i,\n", settings.showMenuTransitions);
     printf("\t\"recents\": %i,\n", settings.showRecents);
+    printf("\t\"tools\": %i,\n", settings.showTools);
     printf("\t\"gameart\": %i,\n", settings.showGameArt);
     printf("\t\"screentimeout\": %i,\n", settings.screenTimeoutSecs);
     printf("\t\"suspendTimeout\": %i,\n", settings.suspendTimeoutSecs);
@@ -780,6 +884,9 @@ void CFG_print(void)
     printf("\t\"defaultView\": %i,\n", settings.defaultView);
     printf("\t\"quickSwitcherUi\": %i,\n", settings.showQuickSwitcherUi);
     printf("\t\"wifiDiagnostics\": %i,\n", settings.wifiDiagnostics);
+    printf("\t\"bluetooth\": %i,\n", settings.bluetooth);
+    printf("\t\"btDiagnostics\": %i,\n", settings.bluetoothDiagnostics);
+    printf("\t\"btMaxRate\": %i,\n", settings.bluetoothSamplerateLimit);
 
     // meta, not a real setting
     if (settings.font == 1)
