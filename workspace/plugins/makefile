@@ -6,3 +6,4 @@ all:
 	cd ledcontrol && make
 	cd network && make
 	cd terminal && make
+	cd bluetooth && make

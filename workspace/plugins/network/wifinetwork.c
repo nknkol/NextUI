@@ -546,7 +546,7 @@ static void plugin_quit(void) {
 // --- 插件导出 ---
 static NextUI_Plugin wifi_plugin_Export = {
     .name = "Wi-Fi",
-    .display_path = SDCARD_PATH "/Tools/Settings",
+    .display_path = SDCARD_PATH "/Tools/Settings/Network",
     .init = plugin_init,
     .run = plugin_run,
     .quit = plugin_quit,

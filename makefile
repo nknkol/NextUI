@@ -200,6 +200,8 @@ plugins:
 	cp $(SRC_PLUGINS_DIR)/ledcontrol/build/$(PLATFORM)/ledcontrol.so $(PLUGINS_DIR)/
 	cp $(SRC_PLUGINS_DIR)/network/build/$(PLATFORM)/wifinetwork.so $(PLUGINS_DIR)/
 	cp $(SRC_PLUGINS_DIR)/terminal/build/$(PLATFORM)/terminal.so $(PLUGINS_DIR)/
+	cp $(SRC_PLUGINS_DIR)/bluetooth/build/$(PLATFORM)/btnetwork.so $(PLUGINS_DIR)/
+	
 
 # --- 主要工作流程目标 ---
 # =============================================================================
