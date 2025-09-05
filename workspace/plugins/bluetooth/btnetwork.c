@@ -113,13 +113,22 @@ static void* bt_scanner_thread_func(void* arg) {
         if (is_enabled) {
             g_bt_ui_state = BT_STATE_ON;
 
+            // --- 修正后的逻辑 ---
+            if (!BT_isConnected() && !BT_discovering()) {
+                LOG_note(LOG_REALTIME, "Not connected and not discovering, starting Bluetooth discovery...\n");
+                BT_discovery(true);
+            } else if (BT_isConnected() && BT_discovering()) {
+                LOG_note(LOG_REALTIME, "Device is connected, stopping Bluetooth discovery to maintain connection.\n");
+                BT_discovery(false);
+            }
+            // --- 修正结束 ---
+
             struct BT_device local_available_devices[SCAN_MAX_RESULTS];
             struct BT_devicePaired local_paired_devices[SCAN_MAX_RESULTS];
             
             int available_count = BT_availableDevices(local_available_devices, SCAN_MAX_RESULTS);
             int paired_count = BT_pairedDevices(local_paired_devices, SCAN_MAX_RESULTS);
 
-            // --- 修改为实时调试日志 ---
             LOG_note(LOG_REALTIME, "BT_availableDevices returned: %d\n", available_count);
             if (available_count < 0) {
                 LOG_note(LOG_REALTIME, "BT_availableDevices failed!\n");
@@ -129,12 +138,12 @@ static void* bt_scanner_thread_func(void* arg) {
             if (paired_count < 0) {
                 LOG_note(LOG_REALTIME, "BT_pairedDevices failed!\n");
             }
-            // --- 调试日志结束 ---
-            if (available_count >= 0 && paired_count >=0) {
+
+            if (available_count >= 0 && paired_count >= 0) {
                 pthread_mutex_lock(&list_mutex);
                 device_count = 0;
                 
-                // Add paired devices
+                // (设备列表填充逻辑保持不变)
                 for (int i = 0; i < paired_count; i++) {
                     if (device_count < SCAN_MAX_RESULTS) {
                         device_list[device_count].paired_dev = local_paired_devices[i];
@@ -145,7 +154,6 @@ static void* bt_scanner_thread_func(void* arg) {
                     }
                 }
                 
-                // Add available devices, avoiding duplicates
                 for (int i = 0; i < available_count; i++) {
                      bool found = false;
                      for (int j = 0; j < paired_count; j++) {
@@ -166,6 +174,12 @@ static void* bt_scanner_thread_func(void* arg) {
             }
         } else {
             g_bt_ui_state = BT_STATE_OFF;
+            
+            if (BT_discovering()) {
+                LOG_note(LOG_REALTIME, "Stopping Bluetooth discovery as BT is disabled.\n");
+                BT_discovery(false);
+            }
+            
             pthread_mutex_lock(&list_mutex);
             if (device_count > 0) {
                 device_count = 0;
@@ -181,6 +195,12 @@ static void* bt_scanner_thread_func(void* arg) {
         pthread_cond_timedwait(&scan_cond, &scan_cond_mutex, &ts);
         pthread_mutex_unlock(&scan_cond_mutex);
     }
+    
+    if (BT_discovering()) {
+        LOG_note(LOG_REALTIME, "Stopping Bluetooth discovery on thread exit.\n");
+        BT_discovery(false);
+    }
+
     return NULL;
 }
 
