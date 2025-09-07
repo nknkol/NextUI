@@ -1,3 +1,4 @@
+//single
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
@@ -80,10 +81,10 @@ static int DEVICE_HEIGHT = 0; // FIXED_HEIGHT;
 static int DEVICE_PITCH = 0; // FIXED_PITCH;
 
 GFX_Renderer renderer;
-// 在文件顶部全局变量区域添加
-static int menu_scroll_state = 0;        // 当前是否有滚动文本
-static int menu_scroll_selected = -1;    // 正在滚动的菜单项索引
-static char menu_scroll_text[256] = "";  // 滚动文本内容
+
+static int menu_scroll_state = 0;        
+static int menu_scroll_selected = -1;    
+static char menu_scroll_text[256] = "";  
 static int menu_scroll_max_width = 0;    // 滚动区域最大宽度
 static TTF_Font* menu_scroll_font = NULL; // 滚动使用的字体
 static SDL_Color menu_scroll_color;      // 滚动文本颜色
@@ -1342,6 +1343,7 @@ enum {
 	SHORTCUT_TOGGLE_FF,
 	SHORTCUT_HOLD_FF,
 	SHORTCUT_GAMESWITCHER,
+	SHORTCUT_SCREENSHOT,
 	// Trimui only
 	SHORTCUT_TOGGLE_TURBO_A,
 	SHORTCUT_TOGGLE_TURBO_B,
@@ -1903,6 +1905,7 @@ static struct Config {
 		[SHORTCUT_TOGGLE_FF]			= {"Toggle FF",			-1, BTN_ID_NONE, 0},
 		[SHORTCUT_HOLD_FF]				= {"Hold FF",			-1, BTN_ID_NONE, 0},
 		[SHORTCUT_GAMESWITCHER]			= {"Game Switcher",		-1, BTN_ID_NONE, 0},
+		[SHORTCUT_SCREENSHOT]           = {"Screenshot",        -1, BTN_ID_NONE, 0},
 		// Trimui only
 		[SHORTCUT_TOGGLE_TURBO_A]		= {"Toggle Turbo A",	-1, BTN_ID_NONE, 0},
 		[SHORTCUT_TOGGLE_TURBO_B]		= {"Toggle Turbo B",	-1, BTN_ID_NONE, 0},
@@ -3201,6 +3204,8 @@ static void OptionList_setOptionVisibility(OptionList* list, const char* key, in
 static void Menu_beforeSleep();
 static void Menu_afterSleep();
 
+static void Menu_screenshot(void);
+
 static void Menu_saveState(void);
 static void Menu_loadState(void);
 
@@ -3293,6 +3298,9 @@ static void input_poll_callback(void) {
 						Menu_saveState(); 
 						break;
 					case SHORTCUT_LOAD_STATE: Menu_loadState(); break;
+					case SHORTCUT_SCREENSHOT:
+						Menu_screenshot();
+						break;
 					case SHORTCUT_RESET_GAME: core.reset(); break;
 					case SHORTCUT_SAVE_QUIT:
 						newScreenshot = 1;
@@ -4689,7 +4697,7 @@ static void video_refresh_callback_main(const void *data, unsigned width, unsign
 	// eg. true src + cropped src + fixed dst + cropped dst
 	if (renderer.dst_p==0 || width!=renderer.true_w || height!=renderer.true_h) {
 		selectScaler(width, height, pitch);
-		// GFX_clearAll();
+		GFX_clearAll();
 		GFX_resetShaders();
 	}
 	
@@ -4705,8 +4713,10 @@ static void video_refresh_callback_main(const void *data, unsigned width, unsign
 		sprintf(debug_text, "%ix%i %ix %i/%i", renderer.src_w,renderer.src_h, scale,currentsampleratein,currentsamplerateout);
 		blitBitmapText(debug_text,x,y,(uint32_t*)data,pitch / 4, width,height);
 		
-		sprintf(debug_text, "%.03f/%i/%.0f/%i", currentratio,
-				currentbuffersize,currentbufferms, currentbufferfree);
+		// sprintf(debug_text, "%.03f/%i/%.0f/%i", currentratio,
+		// 		currentbuffersize,currentbufferms, currentbufferfree);
+		sprintf(debug_text, "%.03f/%i/%.0f/%i/%i/%i", currentratio,
+				currentbuffersize,currentbufferms, currentbufferfree, currentbuffertarget,avgbufferfree);
 		blitBitmapText(debug_text, x, y + 14, (uint32_t*)data, pitch / 4, width,
 					height);
 
@@ -4740,7 +4750,7 @@ static void video_refresh_callback_main(const void *data, unsigned width, unsign
 	renderer.src = (void*)data;
 	renderer.dst = screen->pixels;
 
-	SDL_PauseAudio(0);
+	// SDL_PauseAudio(0);
 	GFX_blitRenderer(&renderer);
 
 	screen_flip(screen);
@@ -4824,7 +4834,8 @@ static void video_refresh_callback(const void* data, unsigned width, unsigned he
 
 static void audio_sample_callback(int16_t left, int16_t right) {
 	if (!fast_forward || ff_audio) {
-		if (use_core_fps) {
+		// if (use_core_fps) {
+		if (use_core_fps || fast_forward) {
 			SND_batchSamples_fixed_rate(&(const SND_Frame){left,right}, 1);
 		}
 		else {
@@ -4834,7 +4845,8 @@ static void audio_sample_callback(int16_t left, int16_t right) {
 }
 static size_t audio_sample_batch_callback(const int16_t *data, size_t frames) { 
 	if (!fast_forward || ff_audio) {
-		if (use_core_fps) {
+		// if (use_core_fps) {
+		if (use_core_fps || fast_forward) {
 			return SND_batchSamples_fixed_rate((const SND_Frame*)data, frames);
 		}
 		else {
@@ -4991,7 +5003,7 @@ void Core_reset(void) {
 	core.reset();
 }
 void Core_unload(void) {
-	SND_quit();
+	// SND_quit();
 }
 void Core_quit(void) {
 	if (core.initialized) {
@@ -5354,6 +5366,7 @@ void Menu_beforeSleep() {
 	RTC_write();
 	State_autosave();
 	putFile(AUTO_RESUME_PATH, game.path + strlen(SDCARD_PATH));
+
 	PWR_setCPUSpeed(CPU_SPEED_MENU);
 }
 void Menu_afterSleep() {
@@ -5961,7 +5974,6 @@ static int OptionShaders_optionChanged(MenuList* list, int i) {
     MenuItem* item = &list->items[i];
     Config_syncShaders(item->key, item->value);
     applyShaderSettings();
-    
     for (int i = 0; i < config.shaders.count; i++) {
         MenuItem* item = &list->items[i];
         item->value = config.shaders.options[i].value;
@@ -6701,11 +6713,38 @@ int save_screenshot_thread(void* data) {
     return 0;
 }
 SDL_Thread* screenshotsavethread;
+static void Menu_screenshot(void) {
+	LOG_info("Menu_screenshot\n");
+
+	char rom_name[256];
+	getDisplayName(game.name, rom_name);
+	getAlias(game.path, rom_name);
+
+	time_t now = time(NULL);
+	struct tm *t = localtime(&now);
+	char buffer[100];
+	strftime(buffer, sizeof(buffer), "%Y-%m-%d-%H-%M-%S", t);
+
+	// make sure this actually exists
+	mkdir(SDCARD_PATH "/Screenshots", 0755);
+
+	char png_path[256];
+	sprintf(png_path, SDCARD_PATH "/Screenshots/%s.%s.png", rom_name, buffer);
+	int cw, ch;
+	unsigned char* pixels = GFX_GL_screenCapture(&cw, &ch);
+	SaveImageArgs* args = malloc(sizeof(SaveImageArgs));
+	args->pixels = pixels;
+	args->w = cw;
+	args->h = ch;
+	args->path = SDL_strdup(png_path);
+	SDL_WaitThread(screenshotsavethread, NULL);
+	screenshotsavethread = SDL_CreateThread(save_screenshot_thread, "SaveScreenshotThread", args);
+}
 static void Menu_saveState(void) {
 	// LOG_info("Menu_saveState\n");
-	if(quit) {
-		SDL_PauseAudio(1);
-	}
+	// if(quit) {
+	// 	SDL_PauseAudio(1);
+	// }
 	Menu_updateState();
 	
 	if (menu.total_discs) {
@@ -7270,8 +7309,45 @@ static void limitFF(void) {
 #define PWR_UPDATE_FREQ 5
 #define PWR_UPDATE_FREQ_INGAME 20
 
+// We need to do this on the audio thread (aka main thread currently)
+static bool resetAudio = false;
+
+void onBluetoothAudioChanged(bool bluetooth, int watch_event)
+{
+	switch (watch_event)
+	{
+	case DIRWATCH_CREATE: LOG_info("callback reason: DIRWATCH_CREATE\n"); break;
+	case DIRWATCH_DELETE: LOG_info("callback reason: DIRWATCH_DELETE\n"); break;
+	case FILEWATCH_MODIFY: LOG_info("callback reason: FILEWATCH_MODIFY\n"); break;
+	case FILEWATCH_DELETE: LOG_info("callback reason: FILEWATCH_DELETE\n"); break;
+	case FILEWATCH_CLOSE_WRITE: LOG_info("callback reason: FILEWATCH_CLOSE_WRITE\n"); break;
+	}
+
+	resetAudio = true;
+
+	// FIXME: This shouldnt be necessary, alsa should just read .asoundrc for the changed defult device.
+	if(bluetooth)
+		SDL_setenv("AUDIODEV", "bluealsa", 1);
+	else
+		SDL_setenv("AUDIODEV", "default", 1);
+
+	if(bluetooth && !exists("/mnt/SDCARD/.userdata/tg5040/.asoundrc"))
+		LOG_error("asoundrc is not there yet!!!\n");
+	else if(!bluetooth && exists("/mnt/SDCARD/.userdata/tg5040/.asoundrc"))
+		LOG_error("asoundrc is not deleted yet!!!\n");
+}
+
 int main(int argc , char* argv[]) {
 	LOG_info("MinArch\n");
+
+	static char asoundpath[MAX_PATH];
+	sprintf(asoundpath, "%s/.asoundrc", getenv("HOME"));
+	LOG_info("minarch: need asoundrc at %s\n", asoundpath);
+	if(exists(asoundpath))
+		LOG_info("asoundrc exists at %s\n", asoundpath);
+	else 
+		LOG_info("asoundrc does not exist at %s\n", asoundpath);
+
 	pthread_t cpucheckthread;
     pthread_create(&cpucheckthread, NULL, PLAT_cpu_monitor, NULL);
 
@@ -7293,8 +7369,6 @@ int main(int argc , char* argv[]) {
 	
 	LOG_info("rom_path: %s\n", rom_path);
 	
-
-	
 	screen = GFX_init(MODE_MENU);
 
 	// initialize default shaders
@@ -7308,7 +7382,8 @@ int main(int argc , char* argv[]) {
 	
 	VIB_init();
 	PWR_init();
-	if (!HAS_POWER_BUTTON) PWR_disableSleep();
+	if (!HAS_POWER_BUTTON)
+		PWR_disableSleep();
 	MSG_init();
 	IMG_Init(IMG_INIT_PNG);
 	Core_open(core_path, tag_name);
@@ -7326,7 +7401,6 @@ int main(int argc , char* argv[]) {
 	Config_init();
 	Config_readOptions(); // cores with boot logo option (eg. gb) need to load options early
 	setOverclock(overclock);
-
 	// 初始化多语言字符
 	UI_InitAllStrings(); // 2. 一次性初始化所有UI字符串
 
@@ -7343,6 +7417,7 @@ int main(int argc , char* argv[]) {
 	Config_readControls(); // restore controls (after the core has reported its defaults)
 	
 	SND_init(core.sample_rate, core.fps);
+	BT_registerDeviceWatcher(onBluetoothAudioChanged);
 	InitSettings(); // after we initialize audio
 	Menu_init();
 	State_resume();
@@ -7380,6 +7455,7 @@ int main(int argc , char* argv[]) {
 	applyShaderSettings();
 	// release config when all is loaded
 	Config_free();
+
 	LOG_info("total startup time %ims\n\n",SDL_GetTicks());
 	while (!quit) {
 		GFX_startFrame();
@@ -7410,7 +7486,13 @@ int main(int argc , char* argv[]) {
 			// this is not needed
 			// SND_resetAudio(core.sample_rate, core.fps);
 		}
-	
+
+		if (resetAudio) {
+			resetAudio = false;
+			LOG_info("Resetting audio device config! (new state: BT %s)\n", SDL_getenv("AUDIODEV"));
+			SND_resetAudio(core.sample_rate, core.fps);
+		}
+
 		hdmimon();
 	}
 	int cw, ch;
@@ -7446,7 +7528,8 @@ finish:
 	PWR_quit();
 	VIB_quit();
 	// already happens on Core_unload
-	SND_quit();
+	BT_removeDeviceWatcher();
+	// SND_quit();
 	PAD_quit();
 	GFX_quit();
 	SDL_WaitThread(screenshotsavethread, NULL);

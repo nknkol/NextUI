@@ -41,7 +41,8 @@ CFLAGS   += -DHAS_SRM
 endif
 ifeq ($(PLATFORM), tg5040)
 CFLAGS += -DHAS_WIFIMG
-LDFLAGS +=  -lwifimg -lwifid
+LDFLAGS +=  -lwifimg -lwifid 
+LDFLAGS +=  -lbtmg -lglib-2.0 -lgio-2.0 -lshared-mainloop -lbluetooth-internal -lasound -ljson-c
 endif
 # CFLAGS  += -Wall -Wno-unused-variable -Wno-unused-function -Wno-format-overflow
 # CFLAGS  += -fsanitize=address -fno-common
