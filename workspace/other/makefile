@@ -12,9 +12,10 @@ REQUIRES_JSTEST=jstest
 REQUIRES_UNZIP60=unzip60
 REQUIRES_FILEMGR=NextCommander
 REQUIRES_LIBTSM=libtsm
+REQUIRES_FISH=fish-shell
 STRACE=strace
 
-all: $(REQUIRES_EVTEST) $(REQUIRES_JSTEST) $(REQUIRES_UNZIP60) $(REQUIRES_FILEMGR) $(REQUIRES_LIBTSM) $(STRACE)
+all: $(REQUIRES_EVTEST) $(REQUIRES_JSTEST) $(REQUIRES_UNZIP60) $(REQUIRES_FILEMGR) $(REQUIRES_LIBTSM) $(REQUIRES_FISH) $(STRACE)
 	cd readmes && make
 	cd $(REQUIRES_FILEMGR) && make -j
 	cd $(REQUIRES_EVTEST) && $(CROSS_COMPILE)gcc -o evtest evtest.c
@@ -32,6 +33,23 @@ all: $(REQUIRES_EVTEST) $(REQUIRES_JSTEST) $(REQUIRES_UNZIP60) $(REQUIRES_FILEMG
 		cd build && meson compile && \
 		cp ../src/tsm/libtsm.h "$(PREFIX_LOCAL)/include" && \
 		cp src/tsm/libtsm.so.4.1.0 "$(PREFIX_LOCAL)/lib/libtsm.so"
+	@echo "Building fish-shell (native compilation)..."
+	cd $(REQUIRES_FISH) && \
+		if [ ! -d build ]; then \
+			mkdir -p build; \
+		fi && \
+		cd build && \
+		cmake .. \
+			-DCMAKE_BUILD_TYPE=Release \
+			-DCMAKE_INSTALL_PREFIX="$(PREFIX_LOCAL)" \
+			-DCMAKE_SYSROOT="$(SYSROOT)" \
+			-DCMAKE_FIND_ROOT_PATH="$(SYSROOT)" \
+			-DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
+			-DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
+			-DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
+			-DWITH_GETTEXT=ON \
+		&& \
+		make -j$(shell nproc)
 	cd $(STRACE) && \
 		./bootstrap && \
 		./configure \
@@ -46,6 +64,7 @@ all: $(REQUIRES_EVTEST) $(REQUIRES_JSTEST) $(REQUIRES_UNZIP60) $(REQUIRES_FILEMG
 clean:
 	cd $(REQUIRES_FILEMGR) && make clean
 	cd $(REQUIRES_UNZIP60) && make -f unix/Makefile.trimuismart clean
+	if [ -d $(REQUIRES_FISH)/build ]; then cd $(REQUIRES_FISH)/build && make clean; fi
 
 ###########################################################
 
@@ -63,6 +82,10 @@ $(REQUIRES_UNZIP60):
 
 $(REQUIRES_LIBTSM):
 	git clone --depth 1 https://github.com/Aetf/libtsm.git $(REQUIRES_LIBTSM)
+
+$(REQUIRES_FISH):
+	git clone --depth 1 https://github.com/fish-shell/fish-shell.git $(REQUIRES_FISH)
+
 # include /readmes/makefile
 $(STRACE):
 	git clone --depth 1 https://github.com/strace/strace.git $(STRACE)

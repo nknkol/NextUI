@@ -4,6 +4,8 @@
  * A C-language plugin to scan, pair, and manage Bluetooth devices.
  * This implementation is based on the C++ BtMenu from the settings app
  * and mirrors the structure of the wifinetwork.c plugin.
+ *
+ * MODIFIED: Refactored to be fully asynchronous to prevent UI blocking.
  */
 
 #include <stdio.h>
@@ -41,7 +43,10 @@ typedef struct {
 } BluetoothDeviceInfo;
 
 
+// --- MODIFIED: Enhanced state machine ---
 typedef enum {
+    BT_STATE_UNINITIALIZED,
+    BT_STATE_INITIALIZING,
     BT_STATE_OFF,
     BT_STATE_ON,
     BT_STATE_TURNING_ON,
@@ -67,7 +72,7 @@ static int dirty;
 static pthread_t bt_scan_thread;
 static pthread_mutex_t list_mutex;
 static volatile bool g_scan_results_updated = false;
-static volatile bool g_thread_running = false;
+static volatile bool g_thread_running = false; // Controls the scanner thread
 
 static pthread_t bt_action_thread;
 static pthread_mutex_t action_mutex;
@@ -80,7 +85,8 @@ static pthread_mutex_t scan_cond_mutex;
 // --- 数据与状态 ---
 static BluetoothDeviceInfo device_list[SCAN_MAX_RESULTS];
 static int device_count;
-static volatile BluetoothUIState g_bt_ui_state = BT_STATE_OFF;
+// --- MODIFIED: Set initial state ---
+static volatile BluetoothUIState g_bt_ui_state = BT_STATE_UNINITIALIZED;
 
 static PluginView current_view;
 static int selected_index;
@@ -89,31 +95,43 @@ static int show_setting = 0;
 
 
 // --- 后台线程函数 ---
+
+// --- MODIFIED: Action thread now updates the final state ---
 static void* bt_action_thread_func(void* arg) {
     pthread_mutex_lock(&action_mutex);
     BluetoothAction action = g_bt_action;
-    g_bt_action = ACTION_NONE;
+    g_bt_action = ACTION_NONE; // Consume the action
     pthread_mutex_unlock(&action_mutex);
 
-    if (action == ACTION_ENABLE) BT_enable(true);
-    else if (action == ACTION_DISABLE) BT_enable(false);
-    else if (action == ACTION_START_DISCOVERY) BT_discovery(1);
-    else if (action == ACTION_STOP_DISCOVERY) BT_discovery(0);
+    if (action == ACTION_ENABLE) {
+        BT_enable(true);
+    } else if (action == ACTION_DISABLE) {
+        BT_enable(false);
+    } else if (action == ACTION_START_DISCOVERY) {
+        BT_discovery(1);
+    } else if (action == ACTION_STOP_DISCOVERY) {
+        BT_discovery(0);
+    }
 
+    // After the action is complete, update the state based on the actual result
+    if (action == ACTION_ENABLE || action == ACTION_DISABLE) {
+        g_bt_ui_state = BT_enabled() ? BT_STATE_ON : BT_STATE_OFF;
+        dirty = true; // Trigger a UI refresh to show the new state
+    }
 
+    // Wake up the scanner thread to let it re-evaluate the new state
     pthread_mutex_lock(&scan_cond_mutex);
     pthread_cond_signal(&scan_cond);
     pthread_mutex_unlock(&scan_cond_mutex);
     return NULL;
 }
 
+// --- MODIFIED: Scanner thread is now state-aware ---
 static void* bt_scanner_thread_func(void* arg) {
     while (g_thread_running) {
-        bool is_enabled = BT_enabled();
-        if (is_enabled) {
-            g_bt_ui_state = BT_STATE_ON;
-
-            // --- 修正后的逻辑 ---
+        // Only perform scanning and device logic if the state is ON
+        if (g_bt_ui_state == BT_STATE_ON) {
+            // This logic is now safe because we know BT is enabled and stable.
             if (!BT_isConnected() && !BT_discovering()) {
                 LOG_note(LOG_REALTIME, "Not connected and not discovering, starting Bluetooth discovery...\n");
                 BT_discovery(true);
@@ -121,7 +139,6 @@ static void* bt_scanner_thread_func(void* arg) {
                 LOG_note(LOG_REALTIME, "Device is connected, stopping Bluetooth discovery to maintain connection.\n");
                 BT_discovery(false);
             }
-            // --- 修正结束 ---
 
             struct BT_device local_available_devices[SCAN_MAX_RESULTS];
             struct BT_devicePaired local_paired_devices[SCAN_MAX_RESULTS];
@@ -130,20 +147,13 @@ static void* bt_scanner_thread_func(void* arg) {
             int paired_count = BT_pairedDevices(local_paired_devices, SCAN_MAX_RESULTS);
 
             LOG_note(LOG_REALTIME, "BT_availableDevices returned: %d\n", available_count);
-            if (available_count < 0) {
-                LOG_note(LOG_REALTIME, "BT_availableDevices failed!\n");
-            }
-
             LOG_note(LOG_REALTIME, "BT_pairedDevices returned: %d\n", paired_count);
-            if (paired_count < 0) {
-                LOG_note(LOG_REALTIME, "BT_pairedDevices failed!\n");
-            }
 
             if (available_count >= 0 && paired_count >= 0) {
                 pthread_mutex_lock(&list_mutex);
                 device_count = 0;
                 
-                // (设备列表填充逻辑保持不变)
+                // Paired devices first
                 for (int i = 0; i < paired_count; i++) {
                     if (device_count < SCAN_MAX_RESULTS) {
                         device_list[device_count].paired_dev = local_paired_devices[i];
@@ -154,6 +164,7 @@ static void* bt_scanner_thread_func(void* arg) {
                     }
                 }
                 
+                // Then available devices, avoiding duplicates
                 for (int i = 0; i < available_count; i++) {
                      bool found = false;
                      for (int j = 0; j < paired_count; j++) {
@@ -173,13 +184,8 @@ static void* bt_scanner_thread_func(void* arg) {
                 g_scan_results_updated = true;
             }
         } else {
-            g_bt_ui_state = BT_STATE_OFF;
-            
-            if (BT_discovering()) {
-                LOG_note(LOG_REALTIME, "Stopping Bluetooth discovery as BT is disabled.\n");
-                BT_discovery(false);
-            }
-            
+            // If Bluetooth is not ON (it's off, turning off, initializing, etc.),
+            // ensure the device list is cleared.
             pthread_mutex_lock(&list_mutex);
             if (device_count > 0) {
                 device_count = 0;
@@ -188,6 +194,7 @@ static void* bt_scanner_thread_func(void* arg) {
             pthread_mutex_unlock(&list_mutex);
         }
         
+        // Wait for the defined interval or until an action signals a state change
         pthread_mutex_lock(&scan_cond_mutex);
         struct timespec ts;
         clock_gettime(CLOCK_REALTIME, &ts);
@@ -205,6 +212,31 @@ static void* bt_scanner_thread_func(void* arg) {
 }
 
 
+// --- NEW: Asynchronous initialization thread ---
+static void* bt_init_thread_func(void* arg) {
+    LOG_note(LOG_REALTIME, "Bluetooth init thread started.\n");
+    
+    // Perform the blocking initialization
+    BT_init();
+
+    LOG_note(LOG_REALTIME, "BT_init() completed.\n");
+    
+    // After init, determine the correct state
+    g_bt_ui_state = BT_enabled() ? BT_STATE_ON : BT_STATE_OFF;
+    dirty = true; // Trigger UI refresh
+
+    // Now that BT stack is ready, start the scanner thread
+    g_thread_running = true;
+    if (pthread_create(&bt_scan_thread, NULL, bt_scanner_thread_func, NULL) != 0) {
+        LOG_error("Failed to create Bluetooth scanner thread.\n");
+        g_thread_running = false;
+        g_bt_ui_state = BT_STATE_OFF; // Fallback to a safe state
+    }
+
+    return NULL;
+}
+
+
 // --- 渲染与辅助函数 ---
 
 static int get_icons_width_for_info(BluetoothDeviceInfo* info) {
@@ -212,7 +244,7 @@ static int get_icons_width_for_info(BluetoothDeviceInfo* info) {
     int width = 0;
     SDL_Rect asset_rect;
     
-    GFX_assetRect(ASSET_WIFI, &asset_rect); // Using WIFI asset for size estimation as they are similar
+    GFX_assetRect(ASSET_WIFI, &asset_rect); // Using WIFI asset for size estimation
     width += asset_rect.w;
     width += SCALE1(OPTION_PADDING);
 
@@ -250,11 +282,14 @@ static void render_list_view() {
         
         if (current_item_index == 0) {
             label_text = "Bluetooth";
+            // --- MODIFIED: Handle new states in renderer ---
             switch(g_bt_ui_state) {
-                case BT_STATE_ON: value_text = "On"; break;
-                case BT_STATE_OFF: value_text = "Off"; break;
-                case BT_STATE_TURNING_ON: value_text = "Turning on..."; break;
-                case BT_STATE_TURNING_OFF: value_text = "Turning off..."; break;
+                case BT_STATE_UNINITIALIZED: value_text = "Status Unknown"; break;
+                case BT_STATE_INITIALIZING:  value_text = "Initializing..."; break;
+                case BT_STATE_ON:            value_text = "On"; break;
+                case BT_STATE_OFF:           value_text = "Off"; break;
+                case BT_STATE_TURNING_ON:    value_text = "Turning on..."; break;
+                case BT_STATE_TURNING_OFF:   value_text = "Turning off..."; break;
             }
         } else {
             label_text = dev_info->dev.name;
@@ -362,8 +397,10 @@ static void handle_list_input() {
     } else if (PAD_justPressed(BTN_A)) {
         if (selected_index == 0) {
             pthread_mutex_lock(&action_mutex);
+            // Only allow enable/disable if the BT stack is in a stable state
             if (g_bt_action == ACTION_NONE && (g_bt_ui_state == BT_STATE_ON || g_bt_ui_state == BT_STATE_OFF)) {
                 g_bt_action = (g_bt_ui_state == BT_STATE_ON) ? ACTION_DISABLE : ACTION_ENABLE;
+                // Immediately update UI to show "turning on/off" for responsiveness
                 g_bt_ui_state = (g_bt_action == ACTION_DISABLE) ? BT_STATE_TURNING_OFF : BT_STATE_TURNING_ON;
                 pthread_create(&bt_action_thread, NULL, bt_action_thread_func, NULL);
                 pthread_detach(bt_action_thread);
@@ -411,30 +448,34 @@ static void handle_list_input() {
 
 // --- 插件生命周期函数 ---
 
+// --- MODIFIED: Init is now non-blocking ---
 static int plugin_init(void* main_screen) {
     screen = (SDL_Surface*)main_screen;
     quit_plugin = 0; dirty = 1; device_count = 0;
     selected_index = 0; list_start_index = 0;
     current_view = VIEW_DEVICE_LIST;
-    g_bt_ui_state = BT_enabled() ? BT_STATE_ON : BT_STATE_OFF;
+    g_bt_ui_state = BT_STATE_INITIALIZING; // Set initial state for the UI
     
     SysUI_Init(screen, &font);
     SysUI_SetTitle("Bluetooth Manager");
     SysUI_SetFullscreen(false);
     SysUI_ShowBottomBar(true);
     PWR_init();
-    BT_init();
+    // BT_init(); // Moved to a background thread
 
     pthread_mutex_init(&list_mutex, NULL);
     pthread_mutex_init(&action_mutex, NULL);
     pthread_mutex_init(&scan_cond_mutex, NULL);
     pthread_cond_init(&scan_cond, NULL);
 
-    g_thread_running = true;
-    if (pthread_create(&bt_scan_thread, NULL, bt_scanner_thread_func, NULL) != 0) {
-        LOG_error("Failed to create Bluetooth scanner thread.\n");
-        g_thread_running = false;
+    // Create and start the initialization thread
+    pthread_t init_thread;
+    if (pthread_create(&init_thread, NULL, bt_init_thread_func, NULL) != 0) {
+         LOG_error("Failed to create Bluetooth init thread.\n");
+         g_bt_ui_state = BT_STATE_OFF; // Fallback to a safe state on error
     }
+    pthread_detach(init_thread); // We don't need to join it, let it manage itself
+
     return 0;
 }
 
@@ -474,9 +515,12 @@ static int plugin_run() {
     return 0;
 }
 
+// --- MODIFIED: Quit logic is cleaner ---
 static void plugin_quit(void) {
+    // Check if the scanner thread was ever started
     if (g_thread_running) {
         g_thread_running = false;
+        // Signal and join the scanner thread to ensure a clean shutdown
         pthread_mutex_lock(&scan_cond_mutex);
         pthread_cond_signal(&scan_cond);
         pthread_mutex_unlock(&scan_cond_mutex);
@@ -488,7 +532,7 @@ static void plugin_quit(void) {
     pthread_cond_destroy(&scan_cond);
 
     PWR_quit();
-    BT_quit();
+    BT_quit(); // De-initialize the BT stack on plugin exit
     SysUI_Quit();
 }
 
