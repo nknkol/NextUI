@@ -140,6 +140,9 @@ system:
 	cp $(SRC_LIB_DIR)/btmanager/build/nextui.upgrade_bluez.pakz ./build/BASE/
 	cp $(SRC_SYS_DIR)/btdaemon/bt_daemon $(SYSTEM_BIN)/
 
+	cp $(SRC_OTHER_DIR)/strace/src/strace $(SYSTEM_BIN)/
+	cp $(SRC_OTHER_DIR)/strace/src/strace-log-merge $(SYSTEM_BIN)/
+
 
 # 使用列表和 foreach 循环简化核心文件的复制过程
 STOCK_CORES  := fceumm gambatte gpsp picodrive snes9x pcsx_rearmed

@@ -12,8 +12,9 @@ REQUIRES_JSTEST=jstest
 REQUIRES_UNZIP60=unzip60
 REQUIRES_FILEMGR=NextCommander
 REQUIRES_LIBTSM=libtsm
+STRACE=strace
 
-all: $(REQUIRES_EVTEST) $(REQUIRES_JSTEST) $(REQUIRES_UNZIP60) $(REQUIRES_FILEMGR) $(REQUIRES_LIBTSM)
+all: $(REQUIRES_EVTEST) $(REQUIRES_JSTEST) $(REQUIRES_UNZIP60) $(REQUIRES_FILEMGR) $(REQUIRES_LIBTSM) $(STRACE)
 	cd readmes && make
 	cd $(REQUIRES_FILEMGR) && make -j
 	cd $(REQUIRES_EVTEST) && $(CROSS_COMPILE)gcc -o evtest evtest.c
@@ -31,6 +32,16 @@ all: $(REQUIRES_EVTEST) $(REQUIRES_JSTEST) $(REQUIRES_UNZIP60) $(REQUIRES_FILEMG
 		cd build && meson compile && \
 		cp ../src/tsm/libtsm.h "$(PREFIX_LOCAL)/include" && \
 		cp src/tsm/libtsm.so.4.1.0 "$(PREFIX_LOCAL)/lib/libtsm.so"
+	cd $(STRACE) && \
+		./bootstrap && \
+		./configure \
+		--enable-static \
+		--disable-shared \
+		--enable-mpers=no \
+		--enable-bundled=yes \
+		LDFLAGS="-static" \
+		LIBS="-lrt -lm -lpthread" && \
+		make
 
 clean:
 	cd $(REQUIRES_FILEMGR) && make clean
@@ -53,3 +64,5 @@ $(REQUIRES_UNZIP60):
 $(REQUIRES_LIBTSM):
 	git clone --depth 1 https://github.com/Aetf/libtsm.git $(REQUIRES_LIBTSM)
 # include /readmes/makefile
+$(STRACE):
+	git clone --depth 1 https://github.com/strace/strace.git $(STRACE)

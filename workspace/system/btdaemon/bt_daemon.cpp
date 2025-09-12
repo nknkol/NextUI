@@ -41,33 +41,19 @@ void writeAudioFile(const std::string& mac) {
         log("Failed to write audio config file");
         return;
     }
-    f << "defaults.bluealsa.device \"" << mac << "\"\n\n"
-      << "pcm.!default {\n"
-      << "    type plug\n"
-      << "    slave.pcm {\n"
-      << "        type bluealsa\n"
-      //<< "        interface \"hci0\"\n"
-      << "        device \"" << mac << "\"\n"
-      << "        profile \"a2dp\"\n"
-      << "        delay 0\n"
-      //<< "        delay 1000\n"
-      << "    }\n"
-      << "}\n"
-      << "ctl.!default {\n"
-      << "    type bluealsa\n"
-      //<< "    interface \"hci0\"\n"
-      << "}\n";
+    
+    // 写入我们最终成功的、完整的 .asoundrc 配置
+    f << "pcm.!default {\n";
+    f << "    type bluealsa\n";
+    f << "    device \"" << mac << "\"\n";
+    f << "    profile \"a2dp\"\n";
+    f << "}\n\n";
+    f << "ctl.!default {\n";
+    f << "    type bluealsa\n";
+    f << "    device \"" << mac << "\"\n";
+    f << "}\n";
 
-    f.flush(); // flush C++ stream buffer
-
-    // Ensure it's flushed to disk
-    int fd = ::open(AUDIO_FILE, O_WRONLY);
-    if (fd >= 0) {
-        fsync(fd);
-        close(fd);
-    }
-
-    log("Updated .asoundrc with device: " + mac);
+    log("Audio config file written for " + mac);
 }
 
 void clearAudioFile() {

@@ -11,16 +11,9 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
+#include "bt_volume_sync.h"
 
-// #include "platform.h"
-// #include "defines.h"
-
-#define VOLUME_MIN 		0
-#define VOLUME_MAX 		20
-#define BRIGHTNESS_MIN 	0
-#define BRIGHTNESS_MAX 	10
-#define COLORTEMP_MIN 	0
-#define COLORTEMP_MAX 	40
+// 所有 MIN/MAX 宏定义已移至 bt_volume_sync.h
 
 #define CODE_MENU0		315
 #define CODE_MENU1		315
@@ -30,9 +23,6 @@
 #define CODE_MUTE		1
 #define CODE_JACK		2
 
-// keymon and api might need different codes
-
-//	for ev.value
 #define RELEASED	0
 #define PRESSED		1
 #define REPEAT		2
@@ -73,8 +63,10 @@ static void* watchMute(void *arg) {
 
 int main (int argc, char *argv[]) {
 	InitSettings();
+	
+	start_bt_volume_sync_thread();
+	
 	// pthread_create(&mute_pt, NULL, &watchMute, NULL);
-
 	
 	char path[32];
 	for (int i=0; i<INPUT_COUNT; i++) {
@@ -185,7 +177,11 @@ int main (int argc, char *argv[]) {
 			}
 			else {
 				val = GetVolume();
-				if (val<VOLUME_MAX) SetVolume(++val);
+				if (val<VOLUME_MAX) {
+				    val++;
+					SetVolume(val);
+					sync_volume_to_bt(val);
+				}
 			}
 			
 			if (up_just_pressed) up_just_pressed = 0;
@@ -205,7 +201,11 @@ int main (int argc, char *argv[]) {
 			}
 			else {
 				val = GetVolume();
-				if (val>VOLUME_MIN) SetVolume(--val);
+				if (val>VOLUME_MIN) {
+				    val--;
+					SetVolume(val);
+					sync_volume_to_bt(val);
+				}
 			}
 			
 			if (down_just_pressed) down_just_pressed = 0;
@@ -217,4 +217,7 @@ int main (int argc, char *argv[]) {
 		
 		usleep(16666); // 60fps
 	}
+	
+	stop_bt_volume_sync_thread();
+	return 0;
 }
