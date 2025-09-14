@@ -50,3 +50,5 @@ workspace/other/readmes/EXTRAS-out.txt
 workspace/other/libtsm
 tmp/*
 workspace/system/btdaemon/bt_daemon
+workspace/other/fish-shell/
+workspace/other/strace/
