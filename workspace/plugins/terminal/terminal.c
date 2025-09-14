@@ -190,18 +190,50 @@ static void cleanup_session_resources(TerminalSession* session) {
     }
 }
 
+// terminal.c (替换整个函数)
 static void update_terminal_size(TerminalSession* session) {
     if (!session || !session->screen) return;
-    
-    // 根据缩放计算终端大小
+
+    // 根据缩放计算字体大小
     int scaled_font_width = (SCALE1(TERMINAL_FONT_WIDTH) * terminal_scale) / 100;
     int scaled_font_height = (SCALE1(TERMINAL_FONT_HEIGHT) * terminal_scale) / 100;
+
+    // 安全检查：防止缩放导致字体尺寸为0，避免除零错误
+    if (scaled_font_width <= 0) scaled_font_width = 1;
+    if (scaled_font_height <= 0) scaled_font_height = 1;
     
+    // 动态计算为OSK预留的高度
+    int osk_reserved_height = 0;
+    if (osk_active) {
+        // 这个高度应该与 render_osk 中实际占用的空间相匹配
+        int key_height = SCALE1(12);
+        int key_spacing = SCALE1(1);
+        int osk_area_h = OSK_ROWS * (key_height + key_spacing) + SCALE1(5) + SCALE1(15); // 键盘区 + 底部边距 + 顶部提示区
+        osk_reserved_height = osk_area_h;
+    }
+
+    // 计算终端的宽度和高度
     unsigned int term_w = (screen->w - SCALE1(PADDING * 2)) / scaled_font_width;
-    unsigned int term_h = (screen->h - SCALE1(PADDING * 2) - ((OSK_ROWS + 2) * SCALE1(TERMINAL_FONT_HEIGHT))) / scaled_font_height;
+    unsigned int term_h = 0;
     
+    // 先用有符号整数计算，防止负数回绕
+    int available_height = screen->h - SCALE1(PADDING * 2) - osk_reserved_height;
+    if (available_height > 0) {
+        term_h = available_height / scaled_font_height;
+    }
+
+    // --- 关键修复 ---
+    // 安全检查：确保终端尺寸至少为1x1，防止无效尺寸导致libtsm状态错误
+    if (term_w < 1) term_w = 1;
+    if (term_h < 1) term_h = 1;
+
     tsm_screen_resize(session->screen, term_w, term_h);
-    TLOG("Terminal resized to %ux%u (scale: %d%%)\n", term_w, term_h, terminal_scale);
+    
+    // 同时更新pty的窗口大小，这样像 `ls` 这样的命令才能正确感知宽度
+    struct winsize ws = { .ws_row = term_h, .ws_col = term_w };
+    ioctl(session->ptm_fd, TIOCSWINSZ, &ws);
+    
+    TLOG("Terminal resized to %ux%u (scale: %d%%, osk: %s)\n", term_w, term_h, terminal_scale, osk_active ? "on" : "off");
 }
 
 static bool initialize_real_terminal(TerminalSession* session) {
@@ -228,20 +260,25 @@ static bool initialize_real_terminal(TerminalSession* session) {
         dup2(pts_fd, STDERR_FILENO);
         close(pts_fd);
         
-        // 设置环境变量 - 使用SDCARD_PATH作为HOME
+        // 设置环境变量
         setenv("TERM", "xterm-256color", 1); 
-        setenv("PATH", "/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin", 1); 
-        setenv("HOME", SDCARD_PATH, 1);  // 使用定义的SDCARD_PATH
+        setenv("PATH", SYSTEM_PATH "/bin:/usr/bin:/bin:/usr/sbin:/sbin", 1); // 建议把你自己的bin目录也加到PATH里
+        setenv("HOME", SDCARD_PATH, 1);
         setenv("USER", "root", 1);
         setenv("LOGNAME", "root", 1);
         
+        // --- 语言和数据文件路径设置 ---
+        setenv("LANG", "zh_CN.UTF-8", 1);
+        setenv("TEXTDOMAINDIR", SYSTEM_PATH "/lang", 1); // 用于语言包 (.mo)
+        setenv("XDG_DATA_DIRS", SYSTEM_PATH, 1);         // 用于 share 目录
+        setenv("XDG_CONFIG_DIRS", SYSTEM_PATH, 1);       // 用于 etc 目录
         // 切换到SDCARD目录
         if (chdir(SDCARD_PATH) != 0) {
             // 如果SDCARD_PATH不可访问，切换到根目录
             chdir("/");
         }
         
-        char *args[] = {"/bin/sh", "-l", NULL};  // 添加 -l参数加载配置
+        char *args[] = {BIN_PATH "/fish", NULL};
         execv(args[0], args);
         exit(1);
     }
@@ -735,194 +772,129 @@ static void handle_list_input(void) {
 
 static void handle_terminal_input(void) {
     TerminalSession* s = &sessions[selected_index];
-    
-    // 处理缩放功能 - SELECT+R1/L1
+    static bool focus_on_panel = false;
+
+    // --- 1. 优先处理所有`SELECT`组合键 ---
     if (PAD_isPressed(BTN_SELECT)) {
+        // 组合键: SELECT + R1 (放大)
         if (PAD_justPressed(BTN_R1)) {
-            // 放大
             if (terminal_scale < MAX_SCALE) {
                 terminal_scale += SCALE_STEP;
                 scale_changed = true;
+                if (s->screen) {
+                    tsm_screen_sb_reset(s->screen);
+                    terminal_scroll_offset = 0;
+                    is_scrolling = false;
+                }
                 update_terminal_size(s);
                 TLOG("Terminal scaled up to %d%%\n", terminal_scale);
             }
-            return;
+            return; // 消费事件并返回
         }
         
+        // 组合键: SELECT + L1 (缩小)
         if (PAD_justPressed(BTN_L1)) {
-            // 缩小
             if (terminal_scale > MIN_SCALE) {
                 terminal_scale -= SCALE_STEP;
                 scale_changed = true;
+                if (s->screen) {
+                    tsm_screen_sb_reset(s->screen);
+                    terminal_scroll_offset = 0;
+                    is_scrolling = false;
+                }
                 update_terminal_size(s);
                 TLOG("Terminal scaled down to %d%%\n", terminal_scale);
             }
+            return; // 消费事件并返回
+        }
+
+        // 组合键: SELECT + START (切换焦点)
+        if (PAD_justPressed(BTN_START)) {
+            focus_on_panel = !focus_on_panel;
+            TLOG("Focus switched to %s\n", focus_on_panel ? "panel" : "keyboard");
+            return; // 消费事件并返回
+        }
+
+        // 如果按下了SELECT但不是有效的组合键, 阻止任何其他按键的单点操作
+        // (例如防止按住SELECT再按X时触发退格)
+        if (PAD_anyJustPressed()) {
             return;
         }
     }
-    
-    // L2/R2 滚动功能
+
+    // --- 2. 处理滚动 (会中断后续操作) ---
     if (PAD_justPressed(BTN_L2) || PAD_justRepeated(BTN_L2)) {
-        // L2 向上滚动
-        if (s->screen) {
-            tsm_screen_sb_up(s->screen, 1);
-            terminal_scroll_offset++;
-            is_scrolling = true;
-            TLOG("Scrolled up, offset: %d\n", terminal_scroll_offset);
-        }
-        return; // 滚动时不处理其他输入
+        if (s->screen) { tsm_screen_sb_up(s->screen, 1); is_scrolling = true; }
+        return;
     }
-    
     if (PAD_justPressed(BTN_R2) || PAD_justRepeated(BTN_R2)) {
-        // R2 向下滚动
-        if (s->screen && terminal_scroll_offset > 0) {
-            tsm_screen_sb_down(s->screen, 1);
-            terminal_scroll_offset--;
-            if (terminal_scroll_offset == 0) {
-                is_scrolling = false;
-            }
-            TLOG("Scrolled down, offset: %d\n", terminal_scroll_offset);
-        }
-        return; // 滚动时不处理其他输入
+        if (s->screen) { tsm_screen_sb_down(s->screen, 1); }
+        return;
     }
-    
-    // 如果在滚动状态，任何其他按键都退出滚动模式
-    if (is_scrolling && (PAD_anyJustPressed() && !PAD_justPressed(BTN_L2) && !PAD_justPressed(BTN_R2))) {
-        // 重置到底部
-        if (s->screen) {
-            tsm_screen_sb_reset(s->screen);
-        }
-        terminal_scroll_offset = 0;
+    if (is_scrolling && PAD_anyJustPressed()) {
+        if (s->screen) tsm_screen_sb_reset(s->screen);
         is_scrolling = false;
-        TLOG("Exited scroll mode\n");
-        // 继续处理按键
     }
+
+    // --- 3. 处理独立的单点按键功能 ---
     
-    // R1键切换面板模式（只有在没按SELECT的时候）
-    if (PAD_justPressed(BTN_R1) && !PAD_isPressed(BTN_SELECT)) {
+    // R1键切换面板模式
+    if (PAD_justPressed(BTN_R1)) {
         panel_mode = (panel_mode + 1) % 4;
-        panel_selected = 0;
-        panel_scroll = 0;
+        panel_selected = 0; panel_scroll = 0;
         TLOG("Panel mode switched to %d\n", panel_mode);
     }
     
-    // SELECT键在键盘和面板之间切换焦点
-    static bool focus_on_panel = false;
-    if (PAD_justPressed(BTN_SELECT) && !PAD_isPressed(BTN_R1) && !PAD_isPressed(BTN_L1)) {
-        focus_on_panel = !focus_on_panel;
-        TLOG("Focus switched to %s\n", focus_on_panel ? "panel" : "keyboard");
-    }
-    
-    if (focus_on_panel) {
-        // 面板导航
-        if (PAD_justRepeated(BTN_UP)) {
-            if (panel_mode == PANEL_SNIPPETS) {
-                if (panel_selected > 0) {
-                    panel_selected--;
-                    if (panel_selected < panel_scroll) panel_scroll = panel_selected;
-                }
-            } else if (panel_mode == PANEL_NUMBERS) {
-                if (panel_selected >= 5) panel_selected -= 5;
-            } else if (panel_mode == PANEL_SYMBOLS) {
-                if (panel_selected >= 5) panel_selected -= 5;
-            }
-        }
-        
-        if (PAD_justRepeated(BTN_DOWN)) {
-            if (panel_mode == PANEL_SNIPPETS) {
-                if (panel_selected < SNIPPET_COUNT - 1) {
-                    panel_selected++;
-                    int max_visible = (screen->h / 4) / SCALE1(12) - 1;
-                    if (panel_selected >= panel_scroll + max_visible) panel_scroll = panel_selected - max_visible + 1;
-                }
-            } else if (panel_mode == PANEL_NUMBERS) {
-                if (panel_selected < 5) panel_selected += 5;
-            } else if (panel_mode == PANEL_SYMBOLS) {
-                if (panel_selected < 15) panel_selected += 5;
-            }
-        }
-        
-        if (PAD_justRepeated(BTN_LEFT)) {
-            if (panel_mode == PANEL_NUMBERS || panel_mode == PANEL_SYMBOLS) {
-                if (panel_selected % 5 > 0) panel_selected--;
-            }
-        }
-        
-        if (PAD_justRepeated(BTN_RIGHT)) {
-            if (panel_mode == PANEL_NUMBERS || panel_mode == PANEL_SYMBOLS) {
-                if (panel_selected % 5 < 4) panel_selected++;
-            }
-        }
-        
-        // A键选择面板项目
-        if (PAD_justPressed(BTN_A)) {
-            if (panel_mode == PANEL_SNIPPETS) {
-                if (panel_selected < SNIPPET_COUNT) {
-                    const char* snippet = quick_snippets[panel_selected];
-                    write(s->ptm_fd, snippet, strlen(snippet));
-                    TLOG("Inserted snippet: %s\n", snippet);
-                }
-            } else if (panel_mode == PANEL_NUMBERS) {
-                char num_char = '0' + panel_selected;
-                write(s->ptm_fd, &num_char, 1);
-            } else if (panel_mode == PANEL_SYMBOLS) {
-                const char* symbols[] = {"!", "@", "#", "$", "%", "^", "&", "*", "(", ")", 
-                                        "[", "]", "{", "}", "|", "\\", "<", ">", "?", "~"};
-                if (panel_selected < 20) {
-                    const char* symbol = symbols[panel_selected];
-                    write(s->ptm_fd, symbol, strlen(symbol));
-                }
-            }
-        }
-    } else {
-        // 键盘导航（原有逻辑）
-        if (PAD_justRepeated(BTN_UP) && osk_y > 0) osk_y--;
-        if (PAD_justRepeated(BTN_DOWN) && osk_y < OSK_ROWS - 1) osk_y++;
-        
-        int max_col = (osk_y == 4) ? FUNC_KEY_COUNT - 1 : strlen(osk_layout[osk_y]) - 1;
-        if (PAD_justRepeated(BTN_LEFT) && osk_x > 0) osk_x--;
-        if (PAD_justRepeated(BTN_RIGHT) && osk_x < max_col) osk_x++;
-        
-        if (osk_x > max_col) osk_x = max_col;
-        
-        // A键选择键盘按键（原有逻辑）
-        if (PAD_justPressed(BTN_A)) {
-            if (osk_y == 4) { // 功能键行
-                switch (osk_x) {
-                    case 0: { char esc[] = "\x1b"; write(s->ptm_fd, esc, 1); break; }
-                    case 1: { char tab[] = "\t"; write(s->ptm_fd, tab, 1); break; }
-                    case 2: { char enter[] = "\r"; write(s->ptm_fd, enter, 1); break; }
-                    case 3: { char bs[] = "\x7f"; write(s->ptm_fd, bs, 1); break; }
-                    case 4: { char space[] = " "; write(s->ptm_fd, space, 1); break; }
-                    case 5: { char up[] = "\x1b[A"; write(s->ptm_fd, up, 3); break; }
-                    case 6: { char down[] = "\x1b[B"; write(s->ptm_fd, down, 3); break; }
-                    case 7: { osk_active = false; TLOG("OSK hidden via HIDE key\n"); break; }
-                }
-            } else {
-                char ch = osk_layout[osk_y][osk_x];
-                write(s->ptm_fd, &ch, 1);
-            }
-        }
-    }
-    
-    // 全局快捷键
-    if (PAD_justPressed(BTN_Y)) { 
-        char space[] = " "; write(s->ptm_fd, space, 1);
-    }
-    if (PAD_justPressed(BTN_X)) { 
-        char bs[] = "\x7f"; write(s->ptm_fd, bs, 1);
-    }
-    if (PAD_justPressed(BTN_START)) { 
-        char enter[] = "\r"; write(s->ptm_fd, enter, 1);
-    }
-    
-    // L1键切换键盘显示（只有在没按SELECT的时候）
-    if (PAD_justPressed(BTN_L1) && !PAD_isPressed(BTN_SELECT)) { 
+    // L1键切换键盘显示
+    if (PAD_justPressed(BTN_L1)) { 
         osk_active = !osk_active;
+        update_terminal_size(s);
         TLOG("OSK toggled via L1, now %s\n", osk_active ? "visible" : "hidden");
     }
+
+    // A键作为主要的回车/确认键
+    if (PAD_justPressed(BTN_A)) {
+        if (osk_active) {
+            if (focus_on_panel) { // 面板确认
+                if (panel_mode == PANEL_SNIPPETS) { if (panel_selected < SNIPPET_COUNT) write(s->ptm_fd, quick_snippets[panel_selected], strlen(quick_snippets[panel_selected])); } 
+                else if (panel_mode == PANEL_NUMBERS) { char n = '0' + panel_selected; write(s->ptm_fd, &n, 1); } 
+                else if (panel_mode == PANEL_SYMBOLS) { const char* sym[] = {"!","@","#","$","%","^","&","*","(",")","[","]","{","}","|","\\","<",">","?","~"}; if (panel_selected < 20) write(s->ptm_fd, sym[panel_selected], strlen(sym[panel_selected])); }
+            } else { // 虚拟键盘确认
+                if (osk_y == 4) {
+                    const char* f_keys[] = {"\x1b", "\t", "\r", "\x7f", " ", "\x1b[A", "\x1b[B"};
+                    if (osk_x < 7) write(s->ptm_fd, f_keys[osk_x], strlen(f_keys[osk_x]));
+                    else { osk_active = false; update_terminal_size(s); } // HIDE
+                } else { char ch = osk_layout[osk_y][osk_x]; write(s->ptm_fd, &ch, 1); }
+            }
+        } else { // 键盘隐藏时, A键直接作为回车
+            char enter[] = "\r"; write(s->ptm_fd, enter, 1);
+        }
+    } else {
+        // 方向键导航
+        if (osk_active) {
+            if (focus_on_panel) {
+                if (PAD_justRepeated(BTN_UP)) { if (panel_mode == PANEL_SNIPPETS) { if (panel_selected > 0) panel_selected--; if (panel_selected < panel_scroll) panel_scroll=panel_selected; } else if (panel_mode == PANEL_NUMBERS || panel_mode == PANEL_SYMBOLS) { if (panel_selected >= 5) panel_selected -= 5; } } 
+                else if (PAD_justRepeated(BTN_DOWN)) { if (panel_mode == PANEL_SNIPPETS) { if (panel_selected < SNIPPET_COUNT - 1) panel_selected++; int max_v = (screen->h / 4) / SCALE1(12)-1; if (panel_selected >= panel_scroll + max_v) panel_scroll=panel_selected-max_v+1; } else if (panel_mode == PANEL_NUMBERS) { if (panel_selected < 5) panel_selected += 5; } else if (panel_mode == PANEL_SYMBOLS) { if (panel_selected < 15) panel_selected += 5; } } 
+                else if (PAD_justRepeated(BTN_LEFT)) { if ((panel_mode == PANEL_NUMBERS || panel_mode == PANEL_SYMBOLS) && (panel_selected % 5 > 0)) panel_selected--; } 
+                else if (PAD_justRepeated(BTN_RIGHT)) { if ((panel_mode == PANEL_NUMBERS || panel_mode == PANEL_SYMBOLS) && (panel_selected % 5 < 4)) panel_selected++; }
+            } else {
+                if (PAD_justRepeated(BTN_UP) && osk_y > 0) osk_y--;
+                if (PAD_justRepeated(BTN_DOWN) && osk_y < OSK_ROWS - 1) osk_y++;
+                int max_col = (osk_y == 4) ? FUNC_KEY_COUNT - 1 : strlen(osk_layout[osk_y]) - 1;
+                if (PAD_justRepeated(BTN_LEFT) && osk_x > 0) osk_x--;
+                if (PAD_justRepeated(BTN_RIGHT) && osk_x < max_col) osk_x++;
+                if (osk_x > max_col) osk_x = max_col;
+            }
+        }
+    }
     
-    // 返回主界面
+    // 全局快捷输入键 (Y, X)
+    if (PAD_justPressed(BTN_Y)) { char space[] = " "; write(s->ptm_fd, space, 1); }
+    if (PAD_justPressed(BTN_X)) { char bs[] = "\x7f"; write(s->ptm_fd, bs, 1); }
+    
+    // START 和 SELECT 单独按下无功能, 所以这里没有它们的处理代码
+
+    // B 键返回主界面
     if (PAD_justPressed(BTN_B)) { 
         current_view = VIEW_LIST; 
         SysUI_SetFullscreen(false); 

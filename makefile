@@ -143,6 +143,11 @@ system:
 	cp $(SRC_OTHER_DIR)/strace/src/strace $(SYSTEM_BIN)/
 	cp $(SRC_OTHER_DIR)/strace/src/strace-log-merge $(SYSTEM_BIN)/
 
+	cp $(SRC_OTHER_DIR)/fish-shell/official_build/fish $(SYSTEM_BIN)/
+	mkdir -p $(SYSTEM_DIR)/lang/zh_CN/LC_MESSAGES/
+	cp $(SRC_OTHER_DIR)/fish-shell/build/zh_CN.gmo $(SYSTEM_DIR)/lang/zh_CN/LC_MESSAGES/fish.mo
+	cp -rv $(SRC_OTHER_DIR)/fish-shell/etc/. $(SYSTEM_DIR)/etc/
+	cp -r $(SRC_OTHER_DIR)/fish-shell/share/ $(SYSTEM_DIR)/share
 
 # 使用列表和 foreach 循环简化核心文件的复制过程
 STOCK_CORES  := fceumm gambatte gpsp picodrive snes9x pcsx_rearmed
