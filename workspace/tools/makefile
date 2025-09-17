@@ -21,6 +21,7 @@ all:
 	cd ./minput && make
 	cd ./settings && make
 	cd ./settingsbt && make
+	cd ./filemanager && make
 
 	# cd ./demo1_overlay && make 
 	# cd ./demo2_background && make

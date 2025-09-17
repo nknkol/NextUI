@@ -1,147 +1,232 @@
+// compositor.c
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdint.h>
-#include <fcntl.h>
-#include <unistd.h>
 #include <string.h>
+#include <unistd.h>
+#include <fcntl.h>
 #include <sys/mman.h>
-#include <sys/ioctl.h>
-#include <xf86drm.h>
-#include <xf86drmMode.h>
+#include <sys/stat.h>
+#include <errno.h>
+#include <signal.h>
+#include <time.h>
+#include "sdl.h"
 
-int main() {
-    int fd;
-    drmModeRes *resources;
-    drmModeConnector *connector = NULL;
-    drmModeEncoder *encoder = NULL;
-    drmModeCrtc *crtc = NULL;
-    int i, j;
+#include "protocol.h" 
+#include "api.h"
 
-    // 1. 打开 DRM 设备
-    // 通常是 /dev/dri/card0
-    fd = open("/dev/dri/card0", O_RDWR | O_CLOEXEC);
-    if (fd < 0) {
-        perror("无法打开 DRM 设备");
-        return -1;
+// 保存每个客户端槽位的信息
+typedef struct {
+    void* shm_ptr;              // 共享内存映射地址
+    ClientControlBlock* control; // 指向控制块
+    uint8_t* framebuffer;       // 指向帧缓冲数据
+    SDL_Surface* surface;       // 用于渲染的SDL表面
+} ClientSlot;
+
+static ClientSlot g_client_slots[MAX_CLIENTS];
+static int g_active_slot = -1;
+static int g_overlay_slot = -1;
+static int g_cmd_fifo_fd = -1;
+static volatile bool g_running = true;
+
+// 清理函数
+void cleanup() {
+    printf("Compositor shutting down...\n");
+    g_running = false;
+    
+    if (g_cmd_fifo_fd != -1) {
+        close(g_cmd_fifo_fd);
+        unlink(FIFO_PATH);
     }
 
-    // 2. 获取 DRM 资源 (CRTC, Encoder, Connector)
-    resources = drmModeGetResources(fd);
-    if (!resources) {
-        perror("无法获取 DRM 资源");
-        close(fd);
-        return -1;
-    }
-
-    // 3. 查找一个已连接的 Connector
-    // Connector 代表一个物理输出端口 (如 HDMI, VGA, DSI)
-    for (i = 0; i < resources->count_connectors; i++) {
-        connector = drmModeGetConnector(fd, resources->connectors[i]);
-        if (connector->connection == DRM_MODE_CONNECTED) {
-            // 找到了一个连接的屏幕，就用它
-            printf("找到了一个连接的屏幕: connector id %d\n", connector->connector_id);
-            break;
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        if (g_client_slots[i].shm_ptr) {
+            munmap(g_client_slots[i].shm_ptr, sizeof(ClientControlBlock) + DEMO_BUFFER_SIZE);
         }
-        drmModeFreeConnector(connector);
-        connector = NULL;
-    }
-
-    if (!connector) {
-        fprintf(stderr, "没有找到任何连接的屏幕\n");
-        drmModeFreeResources(resources);
-        close(fd);
-        return -1;
-    }
-
-    // 4. 获取屏幕的首选显示模式 (分辨率和刷新率)
-    drmModeModeInfo *mode = &connector->modes[0];
-    printf("使用模式: %s (%dx%d@%dHz)\n", mode->name, mode->hdisplay, mode->vdisplay, mode->vrefresh);
-
-    // 5. 查找与 Connector 匹配的 Encoder 和 CRTC
-    // Encoder 负责将像素数据转换为显示信号 (如 HDMI 信号)
-    for (i = 0; i < resources->count_encoders; i++) {
-        encoder = drmModeGetEncoder(fd, resources->encoders[i]);
-        if (encoder->encoder_id == connector->encoder_id) {
-            printf("找到了匹配的 encoder id %d\n", encoder->encoder_id);
-            break;
-        }
-        drmModeFreeEncoder(encoder);
-        encoder = NULL;
-    }
-
-    if (!encoder) {
-        fprintf(stderr, "没有找到匹配的 Encoder\n");
-        drmModeFreeConnector(connector);
-        drmModeFreeResources(resources);
-        close(fd);
-        return -1;
-    }
-
-    // CRTC (CRT Controller) 是一个扫描引擎，负责从内存中读取像素并发送给 Encoder
-    crtc = drmModeGetCrtc(fd, encoder->crtc_id);
-    if (!crtc) {
-        fprintf(stderr, "没有找到匹配的 CRTC\n");
-        drmModeFreeEncoder(encoder);
-        drmModeFreeConnector(connector);
-        drmModeFreeResources(resources);
-        close(fd);
-        return -1;
-    }
-    printf("找到了匹配的 CRTC id %d\n", crtc->crtc_id);
-
-    // 6. 创建一个 Dumb Buffer (简单的内存帧缓冲区)
-    struct drm_mode_create_dumb create_req = {0};
-    struct drm_mode_map_dumb map_req = {0};
-    uint32_t fb_id;
-
-    create_req.width = mode->hdisplay;
-    create_req.height = mode->vdisplay;
-    create_req.bpp = 32; // 32 位色深 (ARGB8888 或 XRGB8888)
-    ioctl(fd, DRM_IOCTL_MODE_CREATE_DUMB, &create_req);
-
-    // 7. 将 Dumb Buffer 转换为一个 Framebuffer ID
-    uint32_t handles[4] = {create_req.handle};
-    uint32_t pitches[4] = {create_req.pitch};
-    uint32_t offsets[4] = {0};
-    drmModeAddFB2(fd, create_req.width, create_req.height,
-                  DRM_FORMAT_XRGB8888, // 假设是 32-bit XRGB 格式，这是最常见的
-                  handles, pitches, offsets, &fb_id, 0);
-
-    // 8. 内存映射 (mmap) Framebuffer，以便我们能用 CPU 写入数据
-    map_req.handle = create_req.handle;
-    ioctl(fd, DRM_IOCTL_MODE_MAP_DUMB, &map_req);
-    uint32_t *fb_ptr = mmap(0, create_req.size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, map_req.offset);
-
-    // 9. 绘制红色方块 (实际上是填充整个屏幕为红色)
-    // 颜色格式是 0x00RRGGBB (因为我们用了 XRGB8888)
-    for (j = 0; j < create_req.height; j++) {
-        for (i = 0; i < create_req.width; i++) {
-            fb_ptr[j * (create_req.pitch / 4) + i] = 0x00FF0000; // 红色
+        // shm_fd is managed by client_lib, no need to close here
+        char shm_path[64];
+        snprintf(shm_path, sizeof(shm_path), "%s_%d", SHM_PATH_PREFIX, i);
+        shm_unlink(shm_path);
+        
+        if (g_client_slots[i].surface) {
+            SDL_FreeSurface(g_client_slots[i].surface);
         }
     }
+    GFX_quit();
+}
 
-    // 10. 设置显示模式 (Mode Setting)
-    // 这是最关键的一步，它告诉显示控制器使用我们的 Framebuffer 进行显示
-    drmModeSetCrtc(fd, crtc->crtc_id, fb_id, 0, 0, &connector->connector_id, 1, mode);
+void handle_signal(int sig) {
+    cleanup();
+    exit(0);
+}
 
-    printf("屏幕应该已经变红了。程序将在 5 秒后退出...\n");
-    sleep(5);
+// 初始化IPC资源
+int setup_ipc_and_surfaces() {
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        char shm_path[64];
+        snprintf(shm_path, sizeof(shm_path), "%s_%d", SHM_PATH_PREFIX, i);
+        
+        int shm_fd = shm_open(shm_path, O_CREAT | O_RDWR, 0666);
+        if (shm_fd == -1) {
+            perror("shm_open"); return -1;
+        }
+        
+        size_t shm_size = sizeof(ClientControlBlock) + DEMO_BUFFER_SIZE;
+        if (ftruncate(shm_fd, shm_size) == -1) {
+            perror("ftruncate"); close(shm_fd); return -1;
+        }
+        
+        g_client_slots[i].shm_ptr = mmap(NULL, shm_size, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+        close(shm_fd); // fd can be closed after mmap
+        if (g_client_slots[i].shm_ptr == MAP_FAILED) {
+            perror("mmap"); return -1;
+        }
+        
+        g_client_slots[i].control = (ClientControlBlock*)g_client_slots[i].shm_ptr;
+        g_client_slots[i].framebuffer = (uint8_t*)g_client_slots[i].shm_ptr + sizeof(ClientControlBlock);
+        
+        memset(g_client_slots[i].control, 0, sizeof(ClientControlBlock));
+        
+        // 创建一个对应的 SDL_Surface 来接收像素数据
+        g_client_slots[i].surface = SDL_CreateRGBSurfaceWithFormatFrom(
+            g_client_slots[i].framebuffer, DEMO_WIDTH, DEMO_HEIGHT, 
+            DEMO_BPP * 8, DEMO_PITCH, SDL_PIXELFORMAT_RGBA8888);
+        
+        if (!g_client_slots[i].surface) {
+            fprintf(stderr, "Failed to create surface for slot %d\n", i); return -1;
+        }
+        SDL_SetSurfaceBlendMode(g_client_slots[i].surface, SDL_BLENDMODE_BLEND);
 
-    // 11. 恢复原始的显示模式
-    drmModeSetCrtc(fd, crtc->crtc_id, crtc->buffer_id, crtc->x, crtc->y, &connector->connector_id, 1, &crtc->mode);
+        printf("Created SHM and Surface for slot %d\n", i);
+    }
+    
+    unlink(FIFO_PATH);
+    if (mkfifo(FIFO_PATH, 0666) == -1) {
+        perror("mkfifo"); return -1;
+    }
+    g_cmd_fifo_fd = open(FIFO_PATH, O_RDONLY | O_NONBLOCK);
+    if (g_cmd_fifo_fd == -1) {
+        perror("open fifo"); return -1;
+    }
+    
+    printf("Command FIFO created at %s\n", FIFO_PATH);
+    return 0;
+}
 
-    // 12. 清理资源
-    munmap(fb_ptr, create_req.size);
-    drmModeRmFB(fd, fb_id);
-    struct drm_mode_destroy_dumb destroy_req = { .handle = create_req.handle };
-    ioctl(fd, DRM_IOCTL_MODE_DESTROY_DUMB, &destroy_req);
+void process_command(const char* cmd_str) {
+    pid_t pid;
+    int slot_id;
 
-    drmModeFreeCrtc(crtc);
-    drmModeFreeEncoder(encoder);
-    drmModeFreeConnector(connector);
-    drmModeFreeResources(resources);
-    close(fd);
+    if (sscanf(cmd_str, "REGISTER %d %d", &pid, &slot_id) == 2) {
+        if (slot_id >= 0 && slot_id < MAX_CLIENTS && g_client_slots[slot_id].control->client_pid == 0) {
+            printf("Registering client PID %d to slot %d\n", pid, slot_id);
+            g_client_slots[slot_id].control->client_pid = pid;
+            g_client_slots[slot_id].control->is_active = true;
+            if (g_active_slot == -1) {
+                g_active_slot = slot_id;
+                 kill(pid, SIGNAL_RESUME); // 激活第一个连接的客户端
+            } else {
+                 kill(pid, SIGNAL_PAUSE);
+            }
+        }
+    } else if (sscanf(cmd_str, "UNREGISTER %d", &pid) == 1) {
+        for (int i = 0; i < MAX_CLIENTS; i++) {
+            if (g_client_slots[i].control->client_pid == pid) {
+                printf("Unregistering client PID %d from slot %d\n", pid, i);
+                memset(g_client_slots[i].control, 0, sizeof(ClientControlBlock));
+                if (g_active_slot == i) g_active_slot = -1;
+                if (g_overlay_slot == i) g_overlay_slot = -1;
+                break;
+            }
+        }
+    } else if (sscanf(cmd_str, "PRESENT %d", &slot_id) == 1) {
+        if (slot_id >= 0 && slot_id < MAX_CLIENTS) {
+            g_client_slots[slot_id].control->is_dirty = true;
+        }
+    } else if (sscanf(cmd_str, "SET_ACTIVE %d", &slot_id) == 1) {
+        if (slot_id >= 0 && slot_id < MAX_CLIENTS && g_client_slots[slot_id].control->is_active) {
+            printf("Switching active view to slot %d\n", slot_id);
+            g_active_slot = slot_id;
+            for (int i = 0; i < MAX_CLIENTS; i++) {
+                if(g_client_slots[i].control->is_active && g_client_slots[i].control->client_pid != 0) {
+                    if (i == g_active_slot || i == g_overlay_slot) {
+                         kill(g_client_slots[i].control->client_pid, SIGNAL_RESUME);
+                    } else {
+                         kill(g_client_slots[i].control->client_pid, SIGNAL_PAUSE);
+                    }
+                }
+            }
+        }
+    } else if (sscanf(cmd_str, "SET_OVERLAY %d", &slot_id) == 1) {
+         if (slot_id >= 0 && slot_id < MAX_CLIENTS && g_client_slots[slot_id].control->is_active) {
+            printf("Setting overlay to slot %d\n", slot_id);
+            g_overlay_slot = slot_id;
+            if (g_client_slots[slot_id].control->client_pid != 0) {
+                kill(g_client_slots[slot_id].control->client_pid, SIGNAL_RESUME);
+            }
+         }
+    } else if (strncmp(cmd_str, "CLEAR_OVERLAY", 13) == 0) {
+        printf("Clearing overlay\n");
+        if (g_overlay_slot != -1 && g_overlay_slot != g_active_slot) {
+            if (g_client_slots[g_overlay_slot].control->client_pid != 0) {
+                kill(g_client_slots[g_overlay_slot].control->client_pid, SIGNAL_PAUSE);
+            }
+        }
+        g_overlay_slot = -1;
+    }
+}
 
-    printf("程序退出。\n");
+
+int main(int argc, char* argv[]) {
+    signal(SIGINT, handle_signal);
+    signal(SIGTERM, handle_signal);
+
+    GFX_init(MODE_MAIN);
+    
+    if (setup_ipc_and_surfaces() != 0) {
+        fprintf(stderr, "Failed to setup IPC\n");
+        GFX_quit();
+        return 1;
+    }
+
+    printf("Compositor started successfully.\n");
+
+    char cmd_buffer[256];
+    while (g_running) {
+        // a. 处理命令
+        int bytes_read = read(g_cmd_fifo_fd, cmd_buffer, sizeof(cmd_buffer) - 1);
+        if (bytes_read > 0) {
+            cmd_buffer[bytes_read] = '\0';
+            process_command(cmd_buffer);
+        }
+
+        // b. 使用平台的分层API进行渲染
+        PLAT_clearLayers(0); // 清空所有层
+
+        // 渲染激活的客户端到背景层 (layer 1)
+        if (g_active_slot != -1) {
+            ClientSlot* slot = &g_client_slots[g_active_slot];
+            if (slot->control->is_active) {
+                // (不需要更新surface，因为它直接指向共享内存)
+                PLAT_drawOnLayer(slot->surface, 0, 0, DEMO_WIDTH, DEMO_HEIGHT, 1.0f, false, 1);
+                slot->control->is_dirty = false; // 标记为已渲染
+            }
+        }
+
+        // 渲染叠加层到前景层 (layer 2)
+        if (g_overlay_slot != -1) {
+             ClientSlot* slot = &g_client_slots[g_overlay_slot];
+             if (slot->control->is_active) {
+                PLAT_drawOnLayer(slot->surface, 0, 0, DEMO_WIDTH, DEMO_HEIGHT, 1.0f, false, 2);
+                slot->control->is_dirty = false;
+             }
+        }
+
+        // 提交所有层到屏幕
+        PLAT_GPU_Flip();
+        
+        usleep(16000); // 维持~60FPS
+    }
+    
+    cleanup();
     return 0;
 }

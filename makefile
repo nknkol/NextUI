@@ -195,10 +195,7 @@ tools:
 	cp $(SRC_TOOL_DIR)/settingsbt/build/$(PLATFORM)/settingsbt.elf $(EXTRAS_TOOLS)/Settingsbt.pak/
 	# cp $(SRC_TOOL_DIR)/ledcontrol/build/$(PLATFORM)/ledcontrol.elf $(EXTRAS_TOOLS)/LedControl.pak/
 	cp $(SRC_TOOL_DIR)/bootlogo/build/$(PLATFORM)/bootlogo.elf $(EXTRAS_TOOLS)/Bootlogo.pak/
-
-	# cp $(SRC_SYS_DIR)/compositor/build/$(PLATFORM)/compositor.elf $(EXTRAS_TOOLS)/Compositor.pak/
-	# cp $(SRC_TOOL_DIR)/demo1_overlay/build/$(PLATFORM)/overlay.elf $(EXTRAS_TOOLS)/Compositor.pak/
-	# cp $(SRC_TOOL_DIR)/demo2_background/build/$(PLATFORM)/background.elf $(EXTRAS_TOOLS)/Compositor.pak/
+	cp $(SRC_TOOL_DIR)/filemanager/build/$(PLATFORM)/file_manager.elf $(EXTRAS_TOOLS)/FileManager.pak/
 
 plugins:
 	cp $(SRC_PLUGINS_DIR)/clock/build/$(PLATFORM)/clock.so $(PLUGINS_DIR)/

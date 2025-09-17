@@ -110,3 +110,98 @@ NextUI_Plugin* PLUGIN_load(const char* path) {
     }
     return get_plugin();
 }
+// --- 新增：参数辅助函数的实现 ---
+PluginArg* PLUGIN_createArg(const char* key, const char* value) {
+    PluginArg* arg = (PluginArg*)malloc(sizeof(PluginArg));
+    if (!arg) return NULL;
+    arg->key = strdup(key);
+    arg->value = strdup(value);
+    arg->next = NULL;
+    return arg;
+}
+
+void PLUGIN_freeArgs(PluginArg* args) {
+    PluginArg* current = args;
+    while (current != NULL) {
+        PluginArg* next = current->next;
+        free(current->key);
+        free(current->value);
+        free(current);
+        current = next;
+    }
+}
+
+// --- 新增：核心调用逻辑的实现 ---
+
+// 内部帮助函数：根据名称查找插件条目
+static PluginEntry* find_plugin_entry(const char* plugin_name) {
+    PluginEntry* current = PLUGINS_get();
+    while (current != NULL) {
+        if (strcmp(current->name, plugin_name) == 0) {
+            return current;
+        }
+        current = current->next;
+    }
+    return NULL;
+}
+
+
+int PLUGIN_invokeAction(const char* plugin_name, const char* action_name, PluginArg* args) {
+    LOG_note(LOG_REALTIME, "Attempting to invoke action '%s' from plugin '%s'\n", action_name, plugin_name);
+    
+    PluginEntry* entry = find_plugin_entry(plugin_name);
+    if (!entry) {
+        LOG_error("Plugin '%s' not found.\n", plugin_name);
+        return -1; // 插件未找到
+    }
+
+    NextUI_Plugin* plugin = PLUGIN_load(entry->path);
+    if (!plugin) {
+        LOG_error("Failed to load plugin from '%s'.\n", entry->path);
+        return -2; // 插件加载失败
+    }
+
+    if (!plugin->actions || plugin->action_count == 0) {
+        LOG_warn("Plugin '%s' does not register any actions.\n", plugin_name);
+        return -3; // 插件无动作
+    }
+
+    for (int i = 0; i < plugin->action_count; ++i) {
+        if (strcmp(plugin->actions[i].name, action_name) == 0) {
+            if (plugin->actions[i].execute) {
+                LOG_note(LOG_REALTIME, "Executing action '%s'...\n", action_name);
+                return plugin->actions[i].execute(args);
+            }
+        }
+    }
+
+    LOG_warn("Action '%s' not found in plugin '%s'.\n", action_name, plugin_name);
+    return -4; // 动作未找到
+}
+
+// 注意：openPage 会启动一个插件的完整UI，它是一个阻塞操作。
+// 你需要在一个新的上下文中运行它，或者修改你的主循环来处理插件的运行。
+// 这里我们假设它会像启动普通游戏一样启动插件。
+int PLUGIN_openPage(const char* plugin_name, const char* page_name, PluginArg* args) {
+    LOG_note(LOG_REALTIME, "Attempting to open page '%s' from plugin '%s'\n", page_name, plugin_name);
+
+    PluginEntry* entry = find_plugin_entry(plugin_name);
+    if (!entry) {
+        LOG_error("Plugin '%s' not found.\n", plugin_name);
+        return -1;
+    }
+    
+    NextUI_Plugin* plugin = PLUGIN_load(entry->path);
+    if (!plugin) {
+        LOG_error("Failed to load plugin from '%s'.\n", entry->path);
+        return -2;
+    }
+
+    if (!plugin->open_page) {
+        LOG_warn("Plugin '%s' does not support opening specific pages.\n", plugin_name);
+        return -3;
+    }
+
+    // 调用页面打开函数，它应该处理初始化并进入自己的主循环
+    return plugin->open_page(page_name, args);
+}

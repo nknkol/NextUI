@@ -22,7 +22,7 @@ all:
 	cd ./show && make
 	cd ./rfkill && make
 	cd ./btdaemon && make
-	# cd ./compositor && make 
+	cd ./compositor && make 
 
 clean:
 	cd ./keymon && make clean

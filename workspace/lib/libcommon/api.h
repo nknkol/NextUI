@@ -766,11 +766,16 @@ void PLAT_wifiDiagnosticsEnable(bool on);
 // #define WIFI_aboutToSleep PLAT_wifiPreSleep
 // #define WIFI_wokeFromSleep PLAT_wifiPostSleep
 ///////////////////////////////
-// --- 插件系统接口 ---
 void PLUGINS_init(void);
 void PLUGINS_quit(void);
 PluginEntry* PLUGINS_get(void); // 返回插件链表的头指针
 NextUI_Plugin* PLUGIN_load(const char* path);
+PluginArg* PLUGIN_createArg(const char* key, const char* value);
+void PLUGIN_freeArgs(PluginArg* args);
+// 功能1: 调用插件的动作
+int PLUGIN_invokeAction(const char* plugin_name, const char* action_name, PluginArg* args);
+// 功能2: 请求插件打开指定页面
+int PLUGIN_openPage(const char* plugin_name, const char* page_name, PluginArg* args);
 ////////////////////////
 // --- 蓝牙 ---
 typedef enum {
