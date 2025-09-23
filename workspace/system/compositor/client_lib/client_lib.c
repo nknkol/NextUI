@@ -27,6 +27,8 @@ static ClientControlBlock* g_control_block_ptr = NULL;
 static struct SunxiMemOpsS* g_memops = NULL;
 
 static volatile bool g_is_paused = true;
+// NEW: Connection status flag for robust error handling
+static volatile bool g_is_connected = false;
 
 static void pause_handler(int sig) { g_is_paused = true; }
 static void resume_handler(int sig) { g_is_paused = false; }
@@ -38,6 +40,8 @@ void client_install_signal_handlers() {
 
 bool client_is_paused() { return g_is_paused; }
 
+// MODIFIED: The function now returns the ID assigned by the compositor.
+// slot_hint is ignored by the new compositor logic but kept for API compatibility.
 int client_connect(int slot_hint) {
     g_memops = GetMemAdapterOpsS();
     if (SunxiMemOpen(g_memops) != 0) {
@@ -49,11 +53,17 @@ int client_connect(int slot_hint) {
         g_ion_buffers[i].ptr = SunxiMemPalloc(g_memops, DEMO_BUFFER_SIZE);
         if (!g_ion_buffers[i].ptr) {
             perror("SunxiMemPalloc");
+            SunxiMemClose(g_memops);
             return -1;
         }
         g_ion_buffers[i].fd = SunxiMemGetBufferFd(g_memops, g_ion_buffers[i].ptr);
         if (g_ion_buffers[i].fd < 0) {
             perror("SunxiMemGetBufferFd");
+            // Cleanup previously allocated buffers
+            for (int j = 0; j < i; j++) {
+                SunxiMemPfree(g_memops, g_ion_buffers[j].ptr);
+            }
+            SunxiMemClose(g_memops);
             return -1;
         }
     }
@@ -62,7 +72,7 @@ int client_connect(int slot_hint) {
     g_socket_fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (g_socket_fd == -1) {
         perror("socket");
-        return -1;
+        return -1; // Early exit, no resources to clean yet other than ION
     }
     struct sockaddr_un addr;
     memset(&addr, 0, sizeof(addr));
@@ -72,13 +82,39 @@ int client_connect(int slot_hint) {
     if (connect(g_socket_fd, (struct sockaddr*)&addr, sizeof(addr)) == -1) {
         perror("connect to compositor socket");
         close(g_socket_fd);
+        g_socket_fd = -1;
         return -1;
     }
+
+    // --- NEW: Compositor-assigned ID logic ---
+    RegisterMessage reg_msg;
+    reg_msg.type = MSG_TYPE_REGISTER;
+    reg_msg.pid = getpid();
+    reg_msg.slot_id = slot_hint; // Keep for compatibility, but compositor ignores it
+
+    if (write(g_socket_fd, &reg_msg, sizeof(reg_msg)) != sizeof(reg_msg)) {
+        perror("Failed to send registration message");
+        close(g_socket_fd);
+        g_socket_fd = -1;
+        return -1;
+    }
+
+    int assigned_slot_id = -1;
+    ssize_t n = read(g_socket_fd, &assigned_slot_id, sizeof(assigned_slot_id));
+    if (n != sizeof(assigned_slot_id) || assigned_slot_id < 0) {
+        fprintf(stderr, "Failed to get a valid slot ID from compositor (is it full?).\n");
+        close(g_socket_fd);
+        g_socket_fd = -1;
+        return -1;
+    }
+    printf("Client: Successfully registered with compositor, assigned Slot ID: %d\n", assigned_slot_id);
+    // --- End of new logic ---
 
     g_mgmt_socket_fd = socket(AF_UNIX, SOCK_DGRAM, 0);
     if (g_mgmt_socket_fd == -1) {
         perror("mgmt socket");
         close(g_socket_fd);
+        g_socket_fd = -1;
         return -1;
     }
     memset(&addr, 0, sizeof(addr));
@@ -87,30 +123,34 @@ int client_connect(int slot_hint) {
     if (connect(g_mgmt_socket_fd, (struct sockaddr*)&addr, sizeof(addr)) == -1) {
         perror("connect to compositor mgmt socket");
         close(g_socket_fd);
+        g_socket_fd = -1;
         close(g_mgmt_socket_fd);
+        g_mgmt_socket_fd = -1;
         return -1;
     }
-    printf("Client: Frame socket and Management socket connected.\n"); fflush(stdout);
-
+    
+    // MODIFIED: Open SHM using the ID assigned by the compositor
     char shm_path[64];
-    snprintf(shm_path, sizeof(shm_path), "%s_%d", SHM_CONTROL_PATH_PREFIX, slot_hint);
+    snprintf(shm_path, sizeof(shm_path), "%s_%d", SHM_CONTROL_PATH_PREFIX, assigned_slot_id);
     g_control_shm_fd = shm_open(shm_path, O_RDWR, 0);
-    if (g_control_shm_fd == -1) { return -1; }
+    if (g_control_shm_fd == -1) { 
+        perror("control shm_open");
+        client_disconnect(assigned_slot_id); // Use new ID for potential cleanup
+        return -1;
+    }
     g_control_block_ptr = mmap(NULL, sizeof(ClientControlBlock), PROT_READ | PROT_WRITE, MAP_SHARED, g_control_shm_fd, 0);
-    if (g_control_block_ptr == MAP_FAILED) { return -1; }
-
-    RegisterMessage reg_msg;
-    reg_msg.type = MSG_TYPE_REGISTER;
-    reg_msg.slot_id = slot_hint;
-    reg_msg.pid = getpid();
-    write(g_socket_fd, &reg_msg, sizeof(reg_msg));
+    if (g_control_block_ptr == MAP_FAILED) {
+        perror("control mmap");
+        client_disconnect(assigned_slot_id);
+        return -1;
+    }
     
-    // 【修改】不再需要创建后台监听线程
-    
-    return slot_hint;
+    g_is_connected = true; // Set connected state to true
+    return assigned_slot_id; // Return the valid, assigned ID
 }
 
 void client_disconnect(int slot_id) {
+    g_is_connected = false; // Set connected state to false
     if (g_socket_fd != -1) {
         close(g_socket_fd);
         g_socket_fd = -1;
@@ -121,25 +161,31 @@ void client_disconnect(int slot_id) {
     }
     if (g_control_block_ptr) {
         munmap(g_control_block_ptr, sizeof(ClientControlBlock));
+        g_control_block_ptr = NULL;
     }
     if (g_control_shm_fd != -1) {
         close(g_control_shm_fd);
+        g_control_shm_fd = -1;
     }
-    for (int i = 0; i < NUM_BUFFERS; i++) {
-        if(g_ion_buffers[i].ptr) {
-            SunxiMemPfree(g_memops, g_ion_buffers[i].ptr);
+    if (g_memops) {
+        for (int i = 0; i < NUM_BUFFERS; i++) {
+            if(g_ion_buffers[i].ptr) {
+                SunxiMemPfree(g_memops, g_ion_buffers[i].ptr);
+                g_ion_buffers[i].ptr = NULL;
+            }
         }
+        SunxiMemClose(g_memops);
+        g_memops = NULL;
     }
-    SunxiMemClose(g_memops);
 }
 
 uint8_t* client_get_render_buffer(int slot_id) {
-    // 恢复为原始的简单逻辑
     return (uint8_t*)g_ion_buffers[g_current_buffer_idx].ptr;
 }
 
 void client_present(int slot_id, uint8_t* buffer_ptr) {
-    if (g_socket_fd == -1) return;
+    // MODIFIED: Check connection status before proceeding
+    if (g_socket_fd == -1 || !g_is_connected) return;
 
     int presented_idx = -1;
     for (int i = 0; i < NUM_BUFFERS; i++) {
@@ -176,25 +222,32 @@ void client_present(int slot_id, uint8_t* buffer_ptr) {
     cmsg->cmsg_len = CMSG_LEN(sizeof(int));
     *(int*)CMSG_DATA(cmsg) = g_ion_buffers[presented_idx].fd;
     
-    sendmsg(g_socket_fd, &msgh, 0);
+    if (sendmsg(g_socket_fd, &msgh, 0) < 0) {
+        perror("Client: sendmsg failed, disconnecting");
+        client_disconnect(slot_id); // Gracefully disconnect
+        return;
+    }
 
-    // --- 【核心修复】发送帧后，阻塞等待合成器的确认回包 ---
     char ack_buffer;
     ssize_t n = read(g_socket_fd, &ack_buffer, 1);
+    
+    // MODIFIED: Robust error handling for ACK read
     if (n <= 0) {
-        // 合成器可能已断开，需要处理错误
-        perror("Failed to read ack from compositor, or connection closed");
-        // 在这里可以考虑关闭连接或进行其他错误处理
+        if (n == 0) {
+            fprintf(stderr, "Client: Compositor closed the connection while waiting for ACK.\n");
+        } else {
+            perror("Client: Failed to read ACK from compositor");
+        }
+        client_disconnect(slot_id); // Gracefully disconnect
+        return;
     }
-    // ---------------------------------------------------
 
-    // 收到确认后，才切换到下一个缓冲区
     g_current_buffer_idx = (g_current_buffer_idx + 1) % NUM_BUFFERS;
 }
 
 
 static void send_management_command(const char* cmd) {
-    if (g_mgmt_socket_fd == -1) return;
+    if (g_mgmt_socket_fd == -1 || !g_is_connected) return;
     MgmtCommandMessage msg;
     msg.type = MSG_TYPE_MGMT_COMMAND;
     strncpy(msg.cmd_str, cmd, sizeof(msg.cmd_str) - 1);

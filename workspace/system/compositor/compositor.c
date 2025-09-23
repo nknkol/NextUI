@@ -409,13 +409,10 @@ void handle_client_message(int slot_id) {
                 fprintf(stderr, "eglCreateImageKHR failed for slot %d. EGL error: 0x%x\n", slot_id, eglGetError());
             }
 
-            // --- 【核心修复】无论成功与否，都向客户端发送一个字节的确认，以解除其阻塞 ---
             char ack = 1;
             if (write(g_client_slots[slot_id].client_sock_fd, &ack, 1) < 0) {
                 perror("Compositor: failed to send ack to client");
-                // 如果发送ack失败，可能客户端已经断开，将在下一次recvmsg时处理
             }
-            // -------------------------------------------------------------------
         }
     } else {
         fprintf(stderr, "Compositor: Received message of unknown type %d on frame socket from slot %d.\n", (int)type, slot_id);
@@ -498,23 +495,40 @@ int main(int argc, char* argv[]) {
 
         int ret = poll(fds, nfds, 0);
         if (ret > 0) {
+            // MODIFIED: Reworked connection handling logic
             if (fds[0].revents & POLLIN) {
                 int new_fd = accept(g_listen_sock_fd, NULL, NULL);
                 if (new_fd != -1) {
                     RegisterMessage reg_msg;
                     ssize_t n = read(new_fd, &reg_msg, sizeof(reg_msg));
                     if (n == sizeof(reg_msg) && reg_msg.type == MSG_TYPE_REGISTER) {
-                         int slot = reg_msg.slot_id;
-                         if (slot >= 0 && slot < MAX_CLIENTS && g_client_slots[slot].client_sock_fd == -1) {
-                            g_client_slots[slot].client_sock_fd = new_fd;
-                            g_client_slots[slot].control->client_pid = reg_msg.pid;
-                            printf("Client PID %d connected to slot %d\n", reg_msg.pid, slot);
+                         // Find an available slot
+                         int assigned_slot = -1;
+                         for (int i = 0; i < MAX_CLIENTS; i++) {
+                             if (g_client_slots[i].client_sock_fd == -1) {
+                                 assigned_slot = i;
+                                 break;
+                             }
+                         }
+
+                         // Send assigned slot ID (or -1 if full) back to client
+                         if (write(new_fd, &assigned_slot, sizeof(assigned_slot)) < 0) {
+                             perror("Failed to send assigned slot ID");
+                             close(new_fd);
                          } else {
-                            fprintf(stderr, "Invalid or taken slot %d requested.\n", slot);
-                            close(new_fd);
+                            if (assigned_slot != -1) {
+                                g_client_slots[assigned_slot].client_sock_fd = new_fd;
+                                g_client_slots[assigned_slot].control->client_pid = reg_msg.pid;
+                                printf("Client PID %d connected and assigned to slot %d\n", reg_msg.pid, assigned_slot);
+                            } else {
+                                fprintf(stderr, "No available slots for client PID %d. Connection rejected.\n", reg_msg.pid);
+                                close(new_fd); // Reject client
+                            }
                          }
                     } else {
-                        fprintf(stderr, "Invalid registration message received.\n");
+                        fprintf(stderr, "Invalid registration message received. Closing connection.\n");
+                        int err_slot = -1;
+                        write(new_fd, &err_slot, sizeof(err_slot)); // Try to notify client
                         close(new_fd);
                     }
                 }
