@@ -4,24 +4,23 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "protocol.h"
 
-// 连接到合成器，获取一个渲染槽位
-// 返回槽位ID，如果失败返回-1
+// Functions for client applications
 int client_connect(int slot_hint);
-
-// 断开与合成器的连接
 void client_disconnect(int slot_id);
 
-// 获取当前帧的帧缓冲地址
-uint8_t* client_get_framebuffer(int slot_id);
+// MODIFIED: 返回的是可直接渲染的ION缓冲区指针
+uint8_t* client_get_render_buffer(int slot_id); 
+void client_present(int slot_id, uint8_t* buffer_ptr); // 提交指定的buffer
 
-// 通知合成器一帧已经渲染完毕
-void client_present(int slot_id);
+// Signal handling
+void client_install_signal_handlers();
+bool client_is_paused();
 
-// 安装信号处理器以响应暂停/恢复
-void client_install_signal_handlers(void);
-
-// 检查是否应该暂停渲染
-bool client_is_paused(void);
+// Management commands
+void client_request_exclusive(int slot_id);
+void client_release_exclusive(int slot_id);
+void client_enable_render_pause(int slot_id);
 
 #endif // CLIENT_LIB_H

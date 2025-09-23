@@ -113,7 +113,14 @@ lib:
 	cp $(SRC_OTHER_DIR)/libtsm/build/src/tsm/libtsm.so $(SYSTEM_LIB)/
 	cp $(SRC_OTHER_DIR)/libtsm/build/src/tsm/libtsm.so.4 $(SYSTEM_LIB)/
 
-	# cp $(SRC_SYS_DIR)/compositor/build/$(PLATFORM)/libfb_compositor.so $(EXTRAS_TOOLS)/Compositor.pak/
+	cp $(SRC_SYS_DIR)/compositor/build/$(PLATFORM)/app_A.elf $(EXTRAS_TOOLS)/Compositor.pak/
+	cp $(SRC_SYS_DIR)/compositor/build/$(PLATFORM)/app_B_overlay.elf $(EXTRAS_TOOLS)/Compositor.pak/
+	cp $(SRC_SYS_DIR)/compositor/build/$(PLATFORM)/compositor.elf $(EXTRAS_TOOLS)/Compositor.pak/
+
+	cp $(SRC_SYS_DIR)/compositor/build/$(PLATFORM)/app_B_overlay.elf $(EXTRAS_TOOLS)/Exclusive.pak/
+	cp $(SRC_SYS_DIR)/compositor/build/$(PLATFORM)/compositor.elf $(EXTRAS_TOOLS)/Exclusive.pak/
+	cp $(SRC_SYS_DIR)/compositor/build/$(PLATFORM)/app_C_exclusive.elf $(EXTRAS_TOOLS)/Exclusive.pak/
+
 
 apps:
 	cp $(SRC_APP_DIR)/nextui/build/$(PLATFORM)/nextui.elf $(SYSTEM_BIN)/

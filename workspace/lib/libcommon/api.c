@@ -799,25 +799,68 @@ void GFX_flip_fixed_rate(SDL_Surface *screen, double target_fps)
 	per_frame_start = SDL_GetPerformanceCounter();
 }
 
-void GFX_sync_fixed_rate(double target_fps)
-{
-	if (target_fps == 0.0)
-		target_fps = SCREEN_FPS;
-	int frame_budget = (int)lrint(1000.0 / target_fps);
-	uint32_t frame_duration = SDL_GetTicks() - frame_start;
-	if (gfx.vsync != VSYNC_OFF)
-	{
-		// this limiting condition helps SuperFX chip games
-		if (gfx.vsync == VSYNC_STRICT || frame_start == 0 || frame_duration < frame_budget)
-		{ // only wait if we're under frame budget
-			PLAT_vsync(frame_budget - frame_duration);
-		}
-	}
-	else
-	{
-		if (frame_duration < frame_budget)
-			SDL_Delay(frame_budget - frame_duration);
-	}
+// void GFX_sync_fixed_rate(double target_fps)
+// {
+// 	if (target_fps == 0.0)
+// 		target_fps = SCREEN_FPS;
+// 	int frame_budget = (int)lrint(1000.0 / target_fps);
+// 	uint32_t frame_duration = SDL_GetTicks() - frame_start;
+// 	if (gfx.vsync != VSYNC_OFF)
+// 	{
+// 		// this limiting condition helps SuperFX chip games
+// 		if (gfx.vsync == VSYNC_STRICT || frame_start == 0 || frame_duration < frame_budget)
+// 		{ // only wait if we're under frame budget
+// 			PLAT_vsync(frame_budget - frame_duration);
+// 		}
+// 	}
+// 	else
+// 	{
+// 		if (frame_duration < frame_budget)
+// 			SDL_Delay(frame_budget - frame_duration);
+// 	}
+// }
+void GFX_sync_fixed_rate(double target_fps) {
+    // 使用静态变量来跟踪下一帧的目标时间点，这种方法比计算每帧的延迟更精确
+    static uint64_t next_frame_time = 0;
+    
+    // 获取高精度时钟的频率（每秒的计数值）
+    uint64_t perf_freq = SDL_GetPerformanceFrequency();
+    
+    // 计算每一帧应该持续多少个时钟周期
+    uint64_t frame_duration_ticks = (uint64_t)(perf_freq / target_fps);
+
+    // 如果是第一次运行，则初始化目标时间
+    if (next_frame_time == 0) {
+        next_frame_time = SDL_GetPerformanceCounter() + frame_duration_ticks;
+    }
+
+    // 获取当前时间
+    uint64_t current_time = SDL_GetPerformanceCounter();
+
+    // 如果当前时间还没到下一帧的目标时间，则等待
+    if (current_time < next_frame_time) {
+        // 计算需要等待的毫秒数
+        uint32_t delay_ms = ((next_frame_time - current_time) * 1000) / perf_freq;
+        
+        // 只在等待时间较长时才使用SDL_Delay，避免短时间频繁调用
+        if (delay_ms > 1) {
+            SDL_Delay(delay_ms - 1);
+        }
+        
+        // 在最后一毫秒使用忙等待（busy-wait），以达到最高精度
+        while (SDL_GetPerformanceCounter() < next_frame_time) {
+            // 空转
+        }
+    }
+    
+    // 更新下一帧的目标时间点
+    next_frame_time += frame_duration_ticks;
+
+    // 防止因长时间卡顿导致 next_frame_time 远远落后于当前时间
+    uint64_t new_current_time = SDL_GetPerformanceCounter();
+    if (next_frame_time < new_current_time) {
+        next_frame_time = new_current_time + frame_duration_ticks;
+    }
 }
 // if a fake vsycn delay is really needed
 void GFX_delay(void)

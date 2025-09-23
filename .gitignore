@@ -11,6 +11,7 @@ toolchains
 libretro-common
 usr
 Roms
+temp
 **/cores/src
 **/cores/output
 **/boot/output
