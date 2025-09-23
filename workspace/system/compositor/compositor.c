@@ -40,7 +40,7 @@ typedef struct {
 static ClientSlot g_client_slots[MAX_CLIENTS];
 static volatile bool g_running = true;
 static int g_listen_sock_fd = -1;
-static int g_mgmt_sock_fd = -1; // FIX: 管理命令专用socket
+static int g_mgmt_sock_fd = -1;
 
 // 状态变量
 static int g_active_slot = -1;
@@ -220,7 +220,6 @@ static int setup_ipc() {
 
     struct sockaddr_un addr;
 
-    // Setup stream socket for frames
     g_listen_sock_fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if(g_listen_sock_fd < 0) { perror("socket"); return -1; }
 
@@ -237,7 +236,6 @@ static int setup_ipc() {
         return -1;
     }
     
-    // FIX: 创建并绑定DGRAM socket用于管理命令
     g_mgmt_sock_fd = socket(AF_UNIX, SOCK_DGRAM, 0);
     if (g_mgmt_sock_fd < 0) {
         perror("mgmt socket");
@@ -280,13 +278,11 @@ static void resume_client(int slot_id) {
 }
 
 void process_management_command(const char* cmd_str) {
-    // NEW LOG: 打印收到的原始命令字符串
     printf("Compositor: Processing management command: [%s]\n", cmd_str);
     fflush(stdout);
 
     int slot_id;
     if (sscanf(cmd_str, "REQUEST_EXCLUSIVE %d", &slot_id) == 1) {
-        // NEW LOG: 打印解析成功后的操作
         printf("Compositor: Parsed REQUEST_EXCLUSIVE for slot %d. Activating exclusive mode.\n", slot_id);
         fflush(stdout);
 
@@ -301,7 +297,6 @@ void process_management_command(const char* cmd_str) {
             }
         }
     } else if (sscanf(cmd_str, "RELEASE_EXCLUSIVE %d", &slot_id) == 1) {
-        // NEW LOG: 打印解析成功后的操作
         printf("Compositor: Parsed RELEASE_EXCLUSIVE for slot %d. Releasing exclusive mode.\n", slot_id);
         fflush(stdout);
 
@@ -316,16 +311,10 @@ void process_management_command(const char* cmd_str) {
             }
         }
     } else {
-        // NEW LOG: 打印解析失败的命令
         fprintf(stderr, "Compositor: Failed to parse management command: [%s]\n", cmd_str);
         fflush(stderr);
     }
     
-    // --- FINAL FIX: 添加GPU硬同步 ---
-    // 在处理完任何改变渲染状态的命令后，调用glFinish()。
-    // 这会强制CPU等待，直到GPU完成所有已提交的渲染任务。
-    // 这样做可以确保在客户端被唤醒并提交新帧时，GPU不会仍在使用旧的纹理资源，
-    // 从而彻底消除因竞态条件导致的瞬时花屏。
     glFinish();
     printf("Compositor: GPU state synchronized after management command.\n");
     fflush(stdout);
@@ -364,7 +353,6 @@ void handle_client_message(int slot_id) {
         if (g_exclusive_slot == slot_id) {
             g_exclusive_slot = -1;
             g_exclusive_mode = false;
-            // 当独占模式的客户端退出时，恢复所有其他客户端
             for (int i = 0; i < MAX_CLIENTS; i++) {
                 if (g_client_slots[i].control->client_pid != 0) resume_client(i);
             }
@@ -375,10 +363,6 @@ void handle_client_message(int slot_id) {
     MessageType type = ((MessageType*)msg_buf)[0];
 
     if (type == MSG_TYPE_PRESENT_FRAME) {
-        PresentFrameMessage* msg = (PresentFrameMessage*)msg_buf;
-        // NEW LOG: 确认收到帧消息
-        // printf("Compositor: Received PRESENT_FRAME from slot %d.\n", msg->slot_id);
-        
         struct cmsghdr* cmsg = CMSG_FIRSTHDR(&msgh);
         if (cmsg && cmsg->cmsg_level == SOL_SOCKET && cmsg->cmsg_type == SCM_RIGHTS) {
             int fd = *(int*)CMSG_DATA(cmsg);
@@ -416,18 +400,22 @@ void handle_client_message(int slot_id) {
 
                 if (!g_exclusive_mode) {
                     if (g_active_slot == -1) {
-                        // 第一个发送帧的客户端成为 active (背景) slot
-                        printf("Compositor: Assigning slot %d as g_active_slot.\n", slot_id);
                         g_active_slot = slot_id;
                     } else if (g_overlay_slot == -1 && slot_id != g_active_slot) {
-                        // 另一个不同的客户端发送帧时，成为 overlay slot
-                        printf("Compositor: Assigning slot %d as g_overlay_slot.\n", slot_id);
                         g_overlay_slot = slot_id;
                     }
                 }
             } else {
                 fprintf(stderr, "eglCreateImageKHR failed for slot %d. EGL error: 0x%x\n", slot_id, eglGetError());
             }
+
+            // --- 【核心修复】无论成功与否，都向客户端发送一个字节的确认，以解除其阻塞 ---
+            char ack = 1;
+            if (write(g_client_slots[slot_id].client_sock_fd, &ack, 1) < 0) {
+                perror("Compositor: failed to send ack to client");
+                // 如果发送ack失败，可能客户端已经断开，将在下一次recvmsg时处理
+            }
+            // -------------------------------------------------------------------
         }
     } else {
         fprintf(stderr, "Compositor: Received message of unknown type %d on frame socket from slot %d.\n", (int)type, slot_id);
@@ -444,7 +432,6 @@ void cleanup() {
         close(g_listen_sock_fd);
         unlink(SOCKET_PATH);
     }
-    // FIX: 清理管理命令socket
     if (g_mgmt_sock_fd != -1) {
         close(g_mgmt_sock_fd);
         unlink(MGMT_SOCKET_PATH);
@@ -488,22 +475,18 @@ int main(int argc, char* argv[]) {
 
 
     while (g_running) {
-        // FIX: 修改poll逻辑以监听新的管理socket
-        struct pollfd fds[MAX_CLIENTS + 2]; // 1 for listen, 1 for mgmt, up to MAX_CLIENTS
+        struct pollfd fds[MAX_CLIENTS + 2];
         int nfds = 0;
 
-        // 监听socket (index 0)
         fds[nfds].fd = g_listen_sock_fd;
         fds[nfds].events = POLLIN;
         nfds++;
 
-        // 管理命令socket (index 1)
         fds[nfds].fd = g_mgmt_sock_fd;
         fds[nfds].events = POLLIN;
         nfds++;
 
-        // 客户端sockets (starting from index 2)
-        int slot_map[MAX_CLIENTS + 2]; // Map fds index back to client slot
+        int slot_map[MAX_CLIENTS + 2];
         for (int i = 0; i < MAX_CLIENTS; i++) {
             if (g_client_slots[i].client_sock_fd != -1) {
                 fds[nfds].fd = g_client_slots[i].client_sock_fd;
@@ -513,9 +496,8 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        int ret = poll(fds, nfds, 0); // Timeout 0: don't wait
+        int ret = poll(fds, nfds, 0);
         if (ret > 0) {
-            // 处理新连接 (fds[0])
             if (fds[0].revents & POLLIN) {
                 int new_fd = accept(g_listen_sock_fd, NULL, NULL);
                 if (new_fd != -1) {
@@ -538,7 +520,6 @@ int main(int argc, char* argv[]) {
                 }
             }
             
-            // FIX: 处理管理命令 (fds[1])
             if (fds[1].revents & POLLIN) {
                 char mgmt_buf[sizeof(MgmtCommandMessage)];
                 ssize_t n = recvfrom(g_mgmt_sock_fd, mgmt_buf, sizeof(mgmt_buf), 0, NULL, NULL);
@@ -548,7 +529,6 @@ int main(int argc, char* argv[]) {
                 }
             }
             
-            // 处理客户端消息 (从fds[2]开始)
             for (int i = 2; i < nfds; i++) {
                 if (fds[i].revents & (POLLIN | POLLHUP | POLLERR)) {
                     handle_client_message(slot_map[i]);

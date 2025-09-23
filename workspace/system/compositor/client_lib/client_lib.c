@@ -21,14 +21,13 @@ static IonBuffer g_ion_buffers[NUM_BUFFERS];
 static int g_current_buffer_idx = 0;
 
 static int g_socket_fd = -1;
-static int g_mgmt_socket_fd = -1; // FIX: 管理命令专用socket
+static int g_mgmt_socket_fd = -1;
 static int g_control_shm_fd = -1;
 static ClientControlBlock* g_control_block_ptr = NULL;
 static struct SunxiMemOpsS* g_memops = NULL;
 
 static volatile bool g_is_paused = true;
 
-// --- 信号处理 (不变) ---
 static void pause_handler(int sig) { g_is_paused = true; }
 static void resume_handler(int sig) { g_is_paused = false; }
 
@@ -39,17 +38,13 @@ void client_install_signal_handlers() {
 
 bool client_is_paused() { return g_is_paused; }
 
-// --- 核心实现 ---
-
 int client_connect(int slot_hint) {
-    // 1. 初始化ION内存分配器
     g_memops = GetMemAdapterOpsS();
     if (SunxiMemOpen(g_memops) != 0) {
         perror("SunxiMemOpen");
         return -1;
     }
 
-    // 2. 为双缓冲分配ION内存
     for (int i = 0; i < NUM_BUFFERS; i++) {
         g_ion_buffers[i].ptr = SunxiMemPalloc(g_memops, DEMO_BUFFER_SIZE);
         if (!g_ion_buffers[i].ptr) {
@@ -64,7 +59,6 @@ int client_connect(int slot_hint) {
     }
     g_current_buffer_idx = 0;
     
-    // 3. 连接到Unix Domain Socket (用于帧数据)
     g_socket_fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (g_socket_fd == -1) {
         perror("socket");
@@ -81,7 +75,6 @@ int client_connect(int slot_hint) {
         return -1;
     }
 
-    // FIX: 创建并连接到管理命令的DGRAM Socket
     g_mgmt_socket_fd = socket(AF_UNIX, SOCK_DGRAM, 0);
     if (g_mgmt_socket_fd == -1) {
         perror("mgmt socket");
@@ -99,8 +92,6 @@ int client_connect(int slot_hint) {
     }
     printf("Client: Frame socket and Management socket connected.\n"); fflush(stdout);
 
-
-    // 4. 映射小型的控制块 (用于状态同步)
     char shm_path[64];
     snprintf(shm_path, sizeof(shm_path), "%s_%d", SHM_CONTROL_PATH_PREFIX, slot_hint);
     g_control_shm_fd = shm_open(shm_path, O_RDWR, 0);
@@ -108,12 +99,13 @@ int client_connect(int slot_hint) {
     g_control_block_ptr = mmap(NULL, sizeof(ClientControlBlock), PROT_READ | PROT_WRITE, MAP_SHARED, g_control_shm_fd, 0);
     if (g_control_block_ptr == MAP_FAILED) { return -1; }
 
-    // 5. 发送注册消息
     RegisterMessage reg_msg;
     reg_msg.type = MSG_TYPE_REGISTER;
     reg_msg.slot_id = slot_hint;
     reg_msg.pid = getpid();
     write(g_socket_fd, &reg_msg, sizeof(reg_msg));
+    
+    // 【修改】不再需要创建后台监听线程
     
     return slot_hint;
 }
@@ -123,7 +115,6 @@ void client_disconnect(int slot_id) {
         close(g_socket_fd);
         g_socket_fd = -1;
     }
-    // FIX: 关闭管理命令socket
     if (g_mgmt_socket_fd != -1) {
         close(g_mgmt_socket_fd);
         g_mgmt_socket_fd = -1;
@@ -143,6 +134,7 @@ void client_disconnect(int slot_id) {
 }
 
 uint8_t* client_get_render_buffer(int slot_id) {
+    // 恢复为原始的简单逻辑
     return (uint8_t*)g_ion_buffers[g_current_buffer_idx].ptr;
 }
 
@@ -156,9 +148,8 @@ void client_present(int slot_id, uint8_t* buffer_ptr) {
             break;
         }
     }
-    if (presented_idx == -1) return; // 无效的buffer指针
+    if (presented_idx == -1) return;
 
-    // FIX: 刷新CPU缓存以解决花屏问题
     if (g_memops && g_ion_buffers[presented_idx].ptr) {
         SunxiMemFlushCache(g_memops, g_ion_buffers[presented_idx].ptr, DEMO_BUFFER_SIZE);
     }
@@ -187,20 +178,28 @@ void client_present(int slot_id, uint8_t* buffer_ptr) {
     
     sendmsg(g_socket_fd, &msgh, 0);
 
-    // 切换到下一个缓冲区
+    // --- 【核心修复】发送帧后，阻塞等待合成器的确认回包 ---
+    char ack_buffer;
+    ssize_t n = read(g_socket_fd, &ack_buffer, 1);
+    if (n <= 0) {
+        // 合成器可能已断开，需要处理错误
+        perror("Failed to read ack from compositor, or connection closed");
+        // 在这里可以考虑关闭连接或进行其他错误处理
+    }
+    // ---------------------------------------------------
+
+    // 收到确认后，才切换到下一个缓冲区
     g_current_buffer_idx = (g_current_buffer_idx + 1) % NUM_BUFFERS;
 }
 
 
 static void send_management_command(const char* cmd) {
-    // FIX: 使用专用的管理命令socket
     if (g_mgmt_socket_fd == -1) return;
     MgmtCommandMessage msg;
     msg.type = MSG_TYPE_MGMT_COMMAND;
     strncpy(msg.cmd_str, cmd, sizeof(msg.cmd_str) - 1);
     msg.cmd_str[sizeof(msg.cmd_str) - 1] = '\0';
 
-    // NEW LOG: 打印将要发送的命令
     printf("Client: Sending MGMT command: [%s]\n", msg.cmd_str);
     fflush(stdout);
 
@@ -209,14 +208,12 @@ static void send_management_command(const char* cmd) {
 
 void client_request_exclusive(int slot_id) {
     char cmd[64];
-    // FIX: 移除命令末尾的 '\n'
     snprintf(cmd, sizeof(cmd), "REQUEST_EXCLUSIVE %d", slot_id);
     send_management_command(cmd);
 }
 
 void client_release_exclusive(int slot_id) {
     char cmd[64];
-    // FIX: 移除命令末尾的 '\n'
     snprintf(cmd, sizeof(cmd), "RELEASE_EXCLUSIVE %d", slot_id);
     send_management_command(cmd);
 }
