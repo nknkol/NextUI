@@ -5,16 +5,16 @@
 #include <unistd.h>
 #include <time.h>
 
-// These would be part of your project's include structure
+// 替换为您项目中的头文件
 #include "sdl.h"
 #include "api.h"
-// End of project includes
+// 结束替换
 
 #include "client_lib.h"
 #include "protocol.h"
 
-
-void render_scene_B(uint8_t* framebuffer) {
+// 修改 render_scene_B 函数，让它接收区域坐标作为参数
+void render_scene_B(uint8_t* framebuffer, int region_x, int region_y, int region_w, int region_h) {
     if (!framebuffer) return;
     
     SDL_Surface* target_surface = SDL_CreateRGBSurfaceFrom(
@@ -26,20 +26,27 @@ void render_scene_B(uint8_t* framebuffer) {
         return;
     }
 
-    static int box_y = 0;
+    static int box_offset_y = 0;
     static int y_direction = 3; 
 
-    // Use a transparent color (alpha=0) to clear the background for an overlay
+    // 用透明色清空整个1024x768的画布
     SDL_FillRect(target_surface, NULL, 0); 
 
-    box_y += y_direction;
-    if (box_y <= 0 || box_y >= (target_surface->h - 100)) {
+    box_offset_y += y_direction;
+    // 确保方块在区域高度内反弹
+    if (box_offset_y <= 0 || box_offset_y >= (region_h - 100)) {
         y_direction = -y_direction; 
     }
 
-    // Render a semi-transparent red rectangle
+    // 在指定的区域内绘制一个垂直移动的方块
     Uint32 red = SDL_MapRGBA(target_surface->format, 255, 0, 0, 180); 
-    SDL_Rect rect = {(target_surface->w / 2) - 50, box_y, 100, 100};
+    // 方块的位置现在基于传入的区域坐标
+    SDL_Rect rect = {
+        region_x + (region_w / 2) - 50, // 在区域的水平中心
+        region_y + box_offset_y,        // 在区域内垂直移动
+        100, 
+        100
+    };
     SDL_FillRect(target_surface, &rect, red);
     
     SDL_FreeSurface(target_surface);
@@ -50,11 +57,15 @@ int main(int argc, char* argv[]) {
     GFX_init(MODE_MENU); 
     PAD_init();
     
-    // This is process-wide, so it's called once.
     client_install_signal_handlers();
 
-    // --- NEW API USAGE ---
-    ClientConnection* conn = client_connect(1, "App B (Overlay)", CLIENT_TYPE_OVERLAY); 
+    // 默认请求 slot 1, 可由启动参数覆盖
+    int requested_slot = 1;
+    if (argc > 1) {
+       requested_slot = atoi(argv[1]);
+    }
+
+    ClientConnection* conn = client_connect(requested_slot, "App B (Overlay Vert)", CLIENT_TYPE_OVERLAY); 
     if (conn == NULL) {
         fprintf(stderr, "App B: Failed to connect to compositor.\n");
         GFX_quit();
@@ -63,9 +74,17 @@ int main(int argc, char* argv[]) {
     
     client_enable_render_pause(conn);
 
+    // 定义此应用的目标叠加层索引和区域
+    int my_overlay_index = 0; // 使用0号叠加层
+    int my_width = 200;
+    int my_height = 200;
+    int my_x = DEMO_WIDTH - my_width - 20; // 屏幕右上角
+    int my_y = 20;                        
+
+    client_set_overlay_region(conn, my_overlay_index, my_x, my_y, my_width, my_height);
+
     bool running = true;
     while(running) {
-        // This is a process-wide check
         if (client_is_paused()) {
              usleep(16000); 
              continue;
@@ -77,18 +96,17 @@ int main(int argc, char* argv[]) {
         }
         
         uint8_t* framebuffer = client_get_render_buffer(conn);
-        if (!framebuffer) {
-             GFX_sync_fixed_rate(60.0);
-             continue;
+        if (framebuffer) {
+             // 将区域坐标传递给渲染函数
+            render_scene_B(framebuffer, my_x, my_y, my_width, my_height);
+            client_present(conn, framebuffer);
         }
         
-        render_scene_B(framebuffer);
-        client_present(conn, framebuffer);
         GFX_sync_fixed_rate(60.0);
     }
     
+    client_clear_overlay_index(conn, my_overlay_index);
     client_disconnect(conn);
-    // --- END NEW API USAGE ---
     
     PAD_quit();
     GFX_quit();

@@ -317,12 +317,16 @@ lib_COMMANDS       := @echo "--> 正在推送库文件及插件..." && \
 
 compositor_SRC      := workspace/system/compositor/build/tg5040/compositor.elf
 demo1_overlay_SRC    := workspace/system/compositor/build/tg5040/app_B_overlay.elf
+demo2_overlay_SRC    := workspace/system/compositor/build/tg5040/app_D_overlay.elf
+demo3_overlay_SRC    := workspace/system/compositor/build/tg5040/app_E_overlay.elf
 demo2_background_SRC := workspace/system/compositor/build/tg5040/app_C_exclusive.elf
 compositorlaunch_SRC := skeleton/EXTRAS/Tools/Exclusive.pak/launch.sh
 compositor_DEST     := mnt/SDCARD/Tools/Exclusive.pak/
 compositor_COMMANDS       := @echo "--> 正在推送compositor..." && \
                       adb push $(compositor_SRC) $(compositor_DEST) && \
 					  adb push $(demo1_overlay_SRC) $(compositor_DEST) && \
+					  adb push $(demo2_overlay_SRC) $(compositor_DEST) && \
+					  adb push $(demo3_overlay_SRC) $(compositor_DEST) && \
 					  adb push $(demo2_background_SRC) $(compositor_DEST) && \
 					  adb push $(compositorlaunch_SRC) $(compositor_DEST)
 

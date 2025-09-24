@@ -75,8 +75,22 @@ void client_set_exclusive_support(ClientConnection* handle, bool supported);
 void client_set_foreground(ClientConnection* handle, const char* mode);
 void client_hide(ClientConnection* handle);
 void client_terminate(ClientConnection* handle);
-void client_set_overlay(ClientConnection* handle);
-void client_clear_overlay(ClientConnection* handle);
+
+/**
+ * @brief 将当前客户端设置为一个指定区域的叠加层
+ * @param handle 连接句柄
+ * @param overlay_index 目标叠加层索引 (0-3)
+ * @param x, y, width, height 屏幕上的目标渲染区域
+ */
+void client_set_overlay_region(ClientConnection* handle, int overlay_index, int x, int y, int width, int height);
+
+/**
+ * @brief 清除一个指定的叠加层
+ * @param handle 连接句柄
+ * @param overlay_index 要清除的叠加层索引 (0-3)
+ */
+void client_clear_overlay_index(ClientConnection* handle, int overlay_index);
+
 int client_list_clients(ClientConnection* handle, ClientListResponse* response);
 
 #endif // CLIENT_LIB_H

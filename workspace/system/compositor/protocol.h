@@ -12,7 +12,8 @@
 #define DEMO_PITCH (DEMO_WIDTH * DEMO_BPP)
 #define DEMO_BUFFER_SIZE (DEMO_PITCH * DEMO_HEIGHT)
 
-#define MAX_CLIENTS 4 // Increased for more flexibility
+#define MAX_CLIENTS 4 
+#define MAX_OVERLAYS 4 // <--- 新增: 定义最大叠加层数量
 
 #define SOCKET_PATH "/tmp/compositor_socket"
 #define MGMT_SOCKET_PATH "/tmp/compositor_mgmt_socket"
@@ -22,20 +23,20 @@
 
 #define SHM_CONTROL_PATH_PREFIX "/nextui_control_slot"
 
-// NEW: Client Type enumeration
+
 typedef enum {
-    CLIENT_TYPE_NORMAL,         // Standard application
-    CLIENT_TYPE_OVERLAY,        // App intended as an overlay (e.g., notifications)
-    CLIENT_TYPE_SWITCHER_UI,    // A special client for task switching UI
+    CLIENT_TYPE_NORMAL,         
+    CLIENT_TYPE_OVERLAY,        
+    CLIENT_TYPE_SWITCHER_UI,    
 } ClientType;
 
-// UPDATED: ClientControlBlock with more info
+
 typedef struct {
     pid_t client_pid;
     bool supports_render_pause;
-    bool supports_exclusive_mode; // NEW: Flag for exclusive mode capability
-    ClientType client_type;       // NEW: Client's registered type
-    char app_name[64];            // NEW: Client's application name
+    bool supports_exclusive_mode; 
+    ClientType client_type;       
+    char app_name[64];            
 } ClientControlBlock;
 
 typedef enum {
@@ -51,15 +52,24 @@ typedef struct {
     int slot_id;
 } PresentFrameMessage;
 
-// UPDATED: RegisterMessage with more info
+
 typedef struct {
     MessageType type;
     int slot_id;
     pid_t pid;
-    ClientType client_type; // NEW
-    char app_name[64];      // NEW
+    ClientType client_type; 
+    char app_name[64];      
 } RegisterMessage;
 
+/*
+ * MgmtCommandMessage's cmd_str will now support more complex commands:
+ * - "SET_FOREGROUND <client_slot_id> <MODE>"
+ * - "HIDE_CLIENT <client_slot_id>"
+ * - "TERMINATE_CLIENT <client_slot_id>"
+ * - "SET_OVERLAY <client_slot_id> <overlay_index> <x> <y> <width> <height>"
+ * - "CLEAR_OVERLAY <overlay_index>"
+ * - "LIST_CLIENTS"
+ */
 typedef struct {
     MessageType type;
     char cmd_str[128];
@@ -71,7 +81,7 @@ typedef struct {
     int buffer_fd; 
 } BufferReleasedMessage;
 
-// NEW: Structs for the LIST_CLIENTS command response
+
 #define MAX_CLIENT_INFO 4
 
 typedef struct {

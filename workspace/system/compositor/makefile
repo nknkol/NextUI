@@ -27,10 +27,8 @@ INCDIRS         = -I. -I/usr/include -I$(LIB_DIR) -I$(COMMON_DIR) -I$(MSETTINGS_
 CFLAGS          = -Wall -O2 -g -std=gnu99 -DUSE_SDL2 $(INCDIRS) -DPLATFORM=\"$(PLATFORM)\" `sdl2-config --cflags`
 
 # --- 链接库定义 ---
-# MODIFIED: 合成器的新链接选项，只包含必要的库
 COMPOSITOR_LDFLAGS = -lrt -lpthread `sdl2-config --libs` -lSDL2_ttf -lGLESv2 -lEGL
 
-# 具备完整UI功能的程序所需的链接选项
 GFX_LDFLAGS = -L$(MSETTINGS_LIB_DIR) -lmsettings -lwifid -lwifimg -lsamplerate -lrt -lpthread `sdl2-config --libs` -lSDL2_ttf -lm -lSDL2_image -lGLESv2 -ldl -lbtmg -lglib-2.0 -lgio-2.0 -lshared-mainloop -lbluetooth-internal -lasound -ljson-c -luapi
 
 # --- 源文件依赖定义 ---
@@ -44,19 +42,24 @@ UI_APP_DEPS_SRC = \
 
 # 源文件
 SRC_COMPOSITOR      = compositor.c
-SRC_APP_A           = $(APP_DIR)/app_A.c
 SRC_APP_B_OVERLAY   = $(APP_DIR)/app_B_overlay.c
 SRC_CLIENT_LIB      = $(LIB_DIR)/client_lib.c
 SRC_APP_C_EXCLUSIVE = $(APP_DIR)/app_C_exclusive.c
+# --- 新增: App D 和 E 的源文件 ---
+SRC_APP_D_OVERLAY   = $(APP_DIR)/app_D_overlay.c
+SRC_APP_E_OVERLAY   = $(APP_DIR)/app_E_overlay.c
 
 # 目标文件
 PROD_COMPOSITOR     = $(BUILD_DIR)/compositor.elf
-# PROD_APP_A          = $(BUILD_DIR)/app_A.elf
 PROD_APP_B_OVERLAY  = $(BUILD_DIR)/app_B_overlay.elf
 OBJ_CLIENT_LIB      = $(BUILD_DIR)/client_lib.o
 PROD_APP_C_EXCLUSIVE = $(BUILD_DIR)/app_C_exclusive.elf
+# --- 新增: App D 和 E 的目标文件 ---
+PROD_APP_D_OVERLAY  = $(BUILD_DIR)/app_D_overlay.elf
+PROD_APP_E_OVERLAY  = $(BUILD_DIR)/app_E_overlay.elf
 
-TARGETS = $(PROD_COMPOSITOR) $(PROD_APP_B_OVERLAY) $(PROD_APP_C_EXCLUSIVE)
+# --- 修改: 将新的目标文件添加到总目标中 ---
+TARGETS = $(PROD_COMPOSITOR) $(PROD_APP_B_OVERLAY) $(PROD_APP_C_EXCLUSIVE) $(PROD_APP_D_OVERLAY) $(PROD_APP_E_OVERLAY)
 
 ###########################################################
 # 3. 编译规则 (Build Rules)
@@ -75,25 +78,31 @@ $(OBJ_CLIENT_LIB): $(SRC_CLIENT_LIB) | $(BUILD_DIR)
 	@echo "  CC (lib)  $(LIB_DIR)/client_lib.c"
 	$(CC) $(CFLAGS) -c $(SRC_CLIENT_LIB) -o $@
 
-# MODIFIED: 规则：编译合成器 (不再依赖 UI_APP_DEPS_SRC)
+# 规则：编译合成器
 $(PROD_COMPOSITOR): $(SRC_COMPOSITOR) | $(BUILD_DIR)
 	@echo "  LINK (compositor) $@"
 	$(CC) $(CFLAGS) $(SRC_COMPOSITOR) -o $@ $(COMPOSITOR_LDFLAGS)
 
-# # 规则：编译客户端A (假设存在)
-# $(PROD_APP_A): $(SRC_APP_A) $(OBJ_CLIENT_LIB) $(UI_APP_DEPS_SRC) | $(BUILD_DIR)
-# 	@echo "  LINK (app A) $@"
-# 	$(CC) $(CFLAGS) $(SRC_APP_A) $(OBJ_CLIENT_LIB) $(UI_APP_DEPS_SRC) -o $@ $(GFX_LDFLAGS)
-
-# 规则：编译客户端B (使用完整UI依赖)
+# 规则：编译客户端B
 $(PROD_APP_B_OVERLAY): $(SRC_APP_B_OVERLAY) $(OBJ_CLIENT_LIB) $(UI_APP_DEPS_SRC) | $(BUILD_DIR)
 	@echo "  LINK (app B) $@"
 	$(CC) $(CFLAGS) $(SRC_APP_B_OVERLAY) $(OBJ_CLIENT_LIB) $(UI_APP_DEPS_SRC) -o $@ $(GFX_LDFLAGS)
 
-# 规则：编译客户端C (使用完整UI依赖)
+# 规则：编译客户端C
 $(PROD_APP_C_EXCLUSIVE): $(SRC_APP_C_EXCLUSIVE) $(OBJ_CLIENT_LIB) $(UI_APP_DEPS_SRC) | $(BUILD_DIR)
 	@echo "  LINK (app C - exclusive) $@"
 	$(CC) $(CFLAGS) $(SRC_APP_C_EXCLUSIVE) $(OBJ_CLIENT_LIB) $(UI_APP_DEPS_SRC) -o $@ $(GFX_LDFLAGS)
+
+# --- 新增: 编译客户端 D 和 E 的规则 ---
+# 规则：编译客户端D (注意：由于使用了sin/cos，需要额外链接数学库 -lm)
+$(PROD_APP_D_OVERLAY): $(SRC_APP_D_OVERLAY) $(OBJ_CLIENT_LIB) $(UI_APP_DEPS_SRC) | $(BUILD_DIR)
+	@echo "  LINK (app D) $@"
+	$(CC) $(CFLAGS) $(SRC_APP_D_OVERLAY) $(OBJ_CLIENT_LIB) $(UI_APP_DEPS_SRC) -o $@ $(GFX_LDFLAGS) -lm
+
+# 规则：编译客户端E
+$(PROD_APP_E_OVERLAY): $(SRC_APP_E_OVERLAY) $(OBJ_CLIENT_LIB) $(UI_APP_DEPS_SRC) | $(BUILD_DIR)
+	@echo "  LINK (app E) $@"
+	$(CC) $(CFLAGS) $(SRC_APP_E_OVERLAY) $(OBJ_CLIENT_LIB) $(UI_APP_DEPS_SRC) -o $@ $(GFX_LDFLAGS)
 
 clean:
 	@echo "Cleaning up..."

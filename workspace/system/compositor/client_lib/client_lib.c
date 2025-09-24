@@ -55,7 +55,6 @@ ClientConnection* client_connect(int slot_hint, const char* app_name, ClientType
         return NULL;
     }
     
-    // Initialize handle state
     handle->slot_id = -1;
     handle->socket_fd = -1;
     handle->mgmt_socket_fd = -1;
@@ -72,7 +71,6 @@ ClientConnection* client_connect(int slot_hint, const char* app_name, ClientType
         handle->ion_buffers[i].ptr = SunxiMemPalloc(handle->memops, DEMO_BUFFER_SIZE);
         if (!handle->ion_buffers[i].ptr) {
             perror("SunxiMemPalloc");
-            // Cleanup already allocated buffers
             for (int j = 0; j < i; j++) SunxiMemPfree(handle->memops, handle->ion_buffers[j].ptr);
             SunxiMemClose(handle->memops);
             free(handle);
@@ -84,7 +82,7 @@ ClientConnection* client_connect(int slot_hint, const char* app_name, ClientType
     handle->socket_fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (handle->socket_fd == -1) {
         perror("socket");
-        client_disconnect(handle); // Use disconnect for proper cleanup
+        client_disconnect(handle); 
         return NULL; 
     }
     
@@ -236,7 +234,7 @@ void client_present(ClientConnection* handle, uint8_t* buffer_ptr) {
     
     if (sendmsg(handle->socket_fd, &msgh, 0) < 0) {
         perror("Client: sendmsg failed, disconnecting");
-        handle->is_connected = false; // Mark as disconnected to prevent further calls
+        handle->is_connected = false;
         return;
     }
 
@@ -290,14 +288,19 @@ void client_terminate(ClientConnection* handle) {
     send_management_command(handle, cmd);
 }
 
-void client_set_overlay(ClientConnection* handle) {
+void client_set_overlay_region(ClientConnection* handle, int overlay_index, int x, int y, int width, int height) {
+    if (!handle) return;
     char cmd[128];
-    snprintf(cmd, sizeof(cmd), "SET_OVERLAY %d", handle->slot_id);
+    snprintf(cmd, sizeof(cmd), "SET_OVERLAY %d %d %d %d %d %d", 
+             handle->slot_id, overlay_index, x, y, width, height);
     send_management_command(handle, cmd);
 }
 
-void client_clear_overlay(ClientConnection* handle) {
-    send_management_command(handle, "CLEAR_OVERLAY");
+void client_clear_overlay_index(ClientConnection* handle, int overlay_index) {
+    if (!handle) return;
+    char cmd[128];
+    snprintf(cmd, sizeof(cmd), "CLEAR_OVERLAY %d", overlay_index);
+    send_management_command(handle, cmd);
 }
 
 int client_list_clients(ClientConnection* handle, ClientListResponse* response) {
