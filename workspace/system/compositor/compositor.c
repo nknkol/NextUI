@@ -23,7 +23,7 @@
 
 #include "protocol.h"
 
-// EGL/GL函数指针
+
 static PFNEGLCREATEIMAGEKHRPROC eglCreateImageKHR_ptr = NULL;
 static PFNEGLDESTROYIMAGEKHRPROC eglDestroyImageKHR_ptr = NULL;
 static PFNGLEGLIMAGETARGETTEXTURE2DOESPROC glEGLImageTargetTexture2DOES_ptr = NULL;
@@ -42,13 +42,14 @@ static volatile bool g_running = true;
 static int g_listen_sock_fd = -1;
 static int g_mgmt_sock_fd = -1;
 
-// 状态变量
+
 static int g_active_slot = -1;
 static int g_overlay_slot = -1;
 static bool g_exclusive_mode = false;
 static int g_exclusive_slot = -1;
+static int g_home_slot = -1; // 新增：用于存储 Home 应用的插槽 ID
 
-// EGL/GL 变量
+
 static SDL_Window* g_window = NULL;
 static SDL_GLContext g_gl_context = NULL;
 static EGLDisplay g_egl_display = EGL_NO_DISPLAY;
@@ -256,7 +257,7 @@ static int setup_ipc() {
 static void pause_client(int slot_id) {
     if (slot_id < 0 || slot_id >= MAX_CLIENTS || g_client_slots[slot_id].control->client_pid == 0) return;
     pid_t pid = g_client_slots[slot_id].control->client_pid;
-    printf("Compositor: Pausing client PID %d in slot %d.\n", (int)pid, slot_id);
+    printf("Compositor: Pausing client '%s' (PID %d) in slot %d.\n", g_client_slots[slot_id].control->app_name, (int)pid, slot_id);
     fflush(stdout);
     if (g_client_slots[slot_id].control->supports_render_pause) {
         kill(pid, SIGNAL_PAUSE);
@@ -268,7 +269,7 @@ static void pause_client(int slot_id) {
 static void resume_client(int slot_id) {
     if (slot_id < 0 || slot_id >= MAX_CLIENTS || g_client_slots[slot_id].control->client_pid == 0) return;
     pid_t pid = g_client_slots[slot_id].control->client_pid;
-    printf("Compositor: Resuming client PID %d in slot %d.\n", (int)pid, slot_id);
+    printf("Compositor: Resuming client '%s' (PID %d) in slot %d.\n", g_client_slots[slot_id].control->app_name, (int)pid, slot_id);
     fflush(stdout);
     if (g_client_slots[slot_id].control->supports_render_pause) {
         kill(pid, SIGNAL_RESUME);
@@ -277,47 +278,119 @@ static void resume_client(int slot_id) {
     }
 }
 
-void process_management_command(const char* cmd_str) {
+void process_management_command(const char* cmd_str, const struct sockaddr_un* client_addr, socklen_t client_len) {
     printf("Compositor: Processing management command: [%s]\n", cmd_str);
     fflush(stdout);
 
     int slot_id;
-    if (sscanf(cmd_str, "REQUEST_EXCLUSIVE %d", &slot_id) == 1) {
-        printf("Compositor: Parsed REQUEST_EXCLUSIVE for slot %d. Activating exclusive mode.\n", slot_id);
-        fflush(stdout);
+    char mode_str[32];
 
-        g_exclusive_mode = true;
-        g_exclusive_slot = slot_id;
-        g_active_slot = -1; 
-        g_overlay_slot = -1;
+    if (strcmp(cmd_str, "LIST_CLIENTS") == 0) {
+        ClientListResponse response;
+        response.count = 0;
         for (int i = 0; i < MAX_CLIENTS; i++) {
-            if (g_client_slots[i].control->client_pid != 0) {
-                if (i == slot_id) resume_client(i);
-                else pause_client(i);
+            if (g_client_slots[i].client_sock_fd != -1 && g_client_slots[i].control->client_type != CLIENT_TYPE_SWITCHER_UI) {
+                ClientInfo* info = &response.clients[response.count];
+                info->slot_id = i;
+                info->pid = g_client_slots[i].control->client_pid;
+                strncpy(info->app_name, g_client_slots[i].control->app_name, sizeof(info->app_name));
+                info->client_type = g_client_slots[i].control->client_type;
+                info->supports_render_pause = g_client_slots[i].control->supports_render_pause;
+                info->supports_exclusive_mode = g_client_slots[i].control->supports_exclusive_mode;
+                response.count++;
             }
         }
-    } else if (sscanf(cmd_str, "RELEASE_EXCLUSIVE %d", &slot_id) == 1) {
-        printf("Compositor: Parsed RELEASE_EXCLUSIVE for slot %d. Releasing exclusive mode.\n", slot_id);
-        fflush(stdout);
+        if (client_addr) {
+            sendto(g_mgmt_sock_fd, &response, sizeof(response), 0, (struct sockaddr*)client_addr, client_len);
+        }
 
-        if (g_exclusive_slot == slot_id) {
+    } else if (sscanf(cmd_str, "SET_FOREGROUND %d %31s", &slot_id, mode_str) == 2) {
+        if (slot_id < 0 || slot_id >= MAX_CLIENTS || g_client_slots[slot_id].client_sock_fd == -1) return;
+
+        if (g_exclusive_mode) {
+            int old_exclusive_slot = g_exclusive_slot;
             g_exclusive_mode = false;
             g_exclusive_slot = -1;
-            g_active_slot = slot_id; 
-            g_overlay_slot = -1;
             
             for (int i = 0; i < MAX_CLIENTS; i++) {
-                if(g_client_slots[i].control->client_pid != 0) resume_client(i);
+                if(g_client_slots[i].client_sock_fd != -1 && i != old_exclusive_slot) resume_client(i);
+            }
+            
+            g_overlay_slot = -1; 
+            for (int i = 0; i < MAX_CLIENTS; i++) {
+                if (g_client_slots[i].client_sock_fd != -1 && g_client_slots[i].control->client_type == CLIENT_TYPE_OVERLAY) {
+                    printf("Compositor: Re-instating slot %d ('%s') as overlay.\n", i, g_client_slots[i].control->app_name);
+                    g_overlay_slot = i;
+                    resume_client(i);
+                    break; 
+                }
             }
         }
+
+        if (strcmp(mode_str, "EXCLUSIVE") == 0) {
+            if (!g_client_slots[slot_id].control->supports_exclusive_mode) {
+                printf("Compositor: Client in slot %d does not support exclusive mode.\n", slot_id);
+                return;
+            }
+            printf("Compositor: Activating exclusive mode for slot %d.\n", slot_id);
+            g_exclusive_mode = true;
+            g_exclusive_slot = slot_id;
+            g_active_slot = -1; 
+            g_overlay_slot = -1;
+            for (int i = 0; i < MAX_CLIENTS; i++) {
+                if (g_client_slots[i].client_sock_fd != -1) {
+                    if (i == slot_id) resume_client(i);
+                    else pause_client(i);
+                }
+            }
+        } else if (strcmp(mode_str, "NORMAL") == 0) {
+             printf("Compositor: Setting slot %d as normal foreground.\n", slot_id);
+            if (g_active_slot != -1 && g_active_slot != slot_id) {
+                pause_client(g_active_slot);
+            }
+            g_active_slot = slot_id;
+            resume_client(g_active_slot);
+        }
+
+    } else if (sscanf(cmd_str, "HIDE_CLIENT %d", &slot_id) == 1) {
+        if (slot_id < 0 || slot_id >= MAX_CLIENTS) return;
+        printf("Compositor: Hiding client in slot %d.\n", slot_id);
+        pause_client(slot_id);
+        if (g_active_slot == slot_id) g_active_slot = -1;
+        if (g_overlay_slot == slot_id) g_overlay_slot = -1;
+        if (g_exclusive_slot == slot_id) {
+             g_exclusive_mode = false;
+             g_exclusive_slot = -1;
+             for (int i = 0; i < MAX_CLIENTS; i++) {
+                if(g_client_slots[i].client_sock_fd != -1) resume_client(i);
+            }
+        }
+
+    } else if (sscanf(cmd_str, "TERMINATE_CLIENT %d", &slot_id) == 1) {
+        if (slot_id < 0 || slot_id >= MAX_CLIENTS || g_client_slots[slot_id].client_sock_fd == -1) return;
+        pid_t pid = g_client_slots[slot_id].control->client_pid;
+        printf("Compositor: Terminating client '%s' (PID %d) in slot %d.\n", g_client_slots[slot_id].control->app_name, (int)pid, slot_id);
+        kill(pid, SIGTERM);
+
+    } else if (sscanf(cmd_str, "SET_OVERLAY %d", &slot_id) == 1) {
+        if (slot_id < 0 || slot_id >= MAX_CLIENTS || g_client_slots[slot_id].client_sock_fd == -1) return;
+        printf("Compositor: Setting slot %d as overlay.\n", slot_id);
+        g_overlay_slot = slot_id;
+        resume_client(slot_id);
+
+    } else if (strcmp(cmd_str, "CLEAR_OVERLAY") == 0) {
+        printf("Compositor: Clearing overlay.\n");
+        if (g_overlay_slot != -1 && g_overlay_slot != g_active_slot) {
+            pause_client(g_overlay_slot);
+        }
+        g_overlay_slot = -1;
+        
     } else {
         fprintf(stderr, "Compositor: Failed to parse management command: [%s]\n", cmd_str);
         fflush(stderr);
     }
     
     glFinish();
-    printf("Compositor: GPU state synchronized after management command.\n");
-    fflush(stdout);
 }
 
 void handle_client_message(int slot_id) {
@@ -336,7 +409,7 @@ void handle_client_message(int slot_id) {
 
     ssize_t n = recvmsg(g_client_slots[slot_id].client_sock_fd, &msgh, 0);
     if (n <= 0) {
-        printf("Client in slot %d disconnected.\n", slot_id);
+        printf("Client '%s' in slot %d disconnected.\n", g_client_slots[slot_id].control->app_name, slot_id);
         close(g_client_slots[slot_id].client_sock_fd);
         g_client_slots[slot_id].client_sock_fd = -1;
         memset(g_client_slots[slot_id].control, 0, sizeof(ClientControlBlock));
@@ -354,7 +427,7 @@ void handle_client_message(int slot_id) {
             g_exclusive_slot = -1;
             g_exclusive_mode = false;
             for (int i = 0; i < MAX_CLIENTS; i++) {
-                if (g_client_slots[i].control->client_pid != 0) resume_client(i);
+                if (g_client_slots[i].client_sock_fd != -1) resume_client(i);
             }
         }
         return;
@@ -370,7 +443,7 @@ void handle_client_message(int slot_id) {
             EGLint attribs[] = {
                 EGL_WIDTH, DEMO_WIDTH,
                 EGL_HEIGHT, DEMO_HEIGHT,
-                EGL_LINUX_DRM_FOURCC_EXT, 0x34325241, // DRM_FORMAT_ARGB8888
+                EGL_LINUX_DRM_FOURCC_EXT, 0x34325241, 
                 EGL_DMA_BUF_PLANE0_FD_EXT, fd,
                 EGL_DMA_BUF_PLANE0_OFFSET_EXT, 0,
                 EGL_DMA_BUF_PLANE0_PITCH_EXT, DEMO_PITCH,
@@ -398,13 +471,6 @@ void handle_client_message(int slot_id) {
                 }
                 g_client_slots[slot_id].current_egl_image = new_image;
 
-                if (!g_exclusive_mode) {
-                    if (g_active_slot == -1) {
-                        g_active_slot = slot_id;
-                    } else if (g_overlay_slot == -1 && slot_id != g_active_slot) {
-                        g_overlay_slot = slot_id;
-                    }
-                }
             } else {
                 fprintf(stderr, "eglCreateImageKHR failed for slot %d. EGL error: 0x%x\n", slot_id, eglGetError());
             }
@@ -425,6 +491,13 @@ void handle_signal(int sig) {
 
 void cleanup() {
     printf("Compositor shutting down...\n");
+    for(int i = 0; i < MAX_CLIENTS; i++) {
+        if (g_client_slots[i].client_sock_fd != -1) {
+            kill(g_client_slots[i].control->client_pid, SIGTERM);
+        }
+    }
+    sleep(1); 
+
     if (g_listen_sock_fd != -1) {
         close(g_listen_sock_fd);
         unlink(SOCKET_PATH);
@@ -451,6 +524,16 @@ void cleanup() {
 }
 
 int main(int argc, char* argv[]) {
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--home-slot") == 0 && i + 1 < argc) {
+            g_home_slot = atoi(argv[i + 1]);
+            i++; 
+        }
+    }
+    if (g_home_slot != -1) {
+        printf("Compositor: Home slot designated to %d\n", g_home_slot);
+    }
+
     signal(SIGINT, handle_signal);
     signal(SIGTERM, handle_signal);
     
@@ -472,6 +555,15 @@ int main(int argc, char* argv[]) {
 
 
     while (g_running) {
+        if (!g_exclusive_mode && g_active_slot == -1 && g_home_slot != -1) {
+            if (g_home_slot >= 0 && g_home_slot < MAX_CLIENTS && g_client_slots[g_home_slot].client_sock_fd != -1) {
+                 printf("Compositor: No active client. Returning to home slot %d.\n", g_home_slot);
+                 char cmd_str[128];
+                 snprintf(cmd_str, sizeof(cmd_str), "SET_FOREGROUND %d NORMAL", g_home_slot);
+                 process_management_command(cmd_str, NULL, 0);
+            }
+        }
+
         struct pollfd fds[MAX_CLIENTS + 2];
         int nfds = 0;
 
@@ -495,23 +587,34 @@ int main(int argc, char* argv[]) {
 
         int ret = poll(fds, nfds, 0);
         if (ret > 0) {
-            // MODIFIED: Reworked connection handling logic
+            
             if (fds[0].revents & POLLIN) {
                 int new_fd = accept(g_listen_sock_fd, NULL, NULL);
                 if (new_fd != -1) {
                     RegisterMessage reg_msg;
                     ssize_t n = read(new_fd, &reg_msg, sizeof(reg_msg));
                     if (n == sizeof(reg_msg) && reg_msg.type == MSG_TYPE_REGISTER) {
-                         // Find an available slot
                          int assigned_slot = -1;
-                         for (int i = 0; i < MAX_CLIENTS; i++) {
-                             if (g_client_slots[i].client_sock_fd == -1) {
-                                 assigned_slot = i;
-                                 break;
+                         int requested_slot = reg_msg.slot_id; 
+
+                         if (requested_slot >= 0 && requested_slot < MAX_CLIENTS) {
+                             if (g_client_slots[requested_slot].client_sock_fd == -1) {
+                                 assigned_slot = requested_slot;
+                                 printf("Client '%s' requested specific slot %d, and it was available. Granted.\n", reg_msg.app_name, assigned_slot);
+                             } else {
+                                 fprintf(stderr, "Client '%s' requested busy slot %d. Rejecting.\n", reg_msg.app_name, requested_slot);
+                             }
+                         } 
+                         else {
+                             for (int i = 0; i < MAX_CLIENTS; i++) {
+                                 if (g_client_slots[i].client_sock_fd == -1) {
+                                     assigned_slot = i;
+                                     printf("Client '%s' requested any slot. Assigning first available: %d.\n", reg_msg.app_name, assigned_slot);
+                                     break;
+                                 }
                              }
                          }
 
-                         // Send assigned slot ID (or -1 if full) back to client
                          if (write(new_fd, &assigned_slot, sizeof(assigned_slot)) < 0) {
                              perror("Failed to send assigned slot ID");
                              close(new_fd);
@@ -519,16 +622,28 @@ int main(int argc, char* argv[]) {
                             if (assigned_slot != -1) {
                                 g_client_slots[assigned_slot].client_sock_fd = new_fd;
                                 g_client_slots[assigned_slot].control->client_pid = reg_msg.pid;
-                                printf("Client PID %d connected and assigned to slot %d\n", reg_msg.pid, assigned_slot);
+                                g_client_slots[assigned_slot].control->client_type = reg_msg.client_type;
+                                strncpy(g_client_slots[assigned_slot].control->app_name, reg_msg.app_name, sizeof(g_client_slots[assigned_slot].control->app_name));
+                                printf("Client '%s' (PID %d) connected and assigned to slot %d\n", reg_msg.app_name, reg_msg.pid, assigned_slot);
+
+                                if (reg_msg.client_type == CLIENT_TYPE_OVERLAY) {
+                                    printf("Compositor: Auto-activating new client in slot %d ('%s') as overlay.\n", assigned_slot, reg_msg.app_name);
+                                    if (g_overlay_slot != -1) {
+                                        pause_client(g_overlay_slot);
+                                    }
+                                    g_overlay_slot = assigned_slot;
+                                    resume_client(assigned_slot);
+                                }
+
                             } else {
-                                fprintf(stderr, "No available slots for client PID %d. Connection rejected.\n", reg_msg.pid);
-                                close(new_fd); // Reject client
+                                fprintf(stderr, "No available slots for client '%s'. Connection rejected.\n", reg_msg.app_name);
+                                close(new_fd); 
                             }
                          }
                     } else {
                         fprintf(stderr, "Invalid registration message received. Closing connection.\n");
                         int err_slot = -1;
-                        write(new_fd, &err_slot, sizeof(err_slot)); // Try to notify client
+                        write(new_fd, &err_slot, sizeof(err_slot)); 
                         close(new_fd);
                     }
                 }
@@ -536,10 +651,13 @@ int main(int argc, char* argv[]) {
             
             if (fds[1].revents & POLLIN) {
                 char mgmt_buf[sizeof(MgmtCommandMessage)];
-                ssize_t n = recvfrom(g_mgmt_sock_fd, mgmt_buf, sizeof(mgmt_buf), 0, NULL, NULL);
+                struct sockaddr_un client_addr;
+                socklen_t client_len = sizeof(client_addr);
+                ssize_t n = recvfrom(g_mgmt_sock_fd, mgmt_buf, sizeof(mgmt_buf), 0, (struct sockaddr*)&client_addr, &client_len);
+
                 if (n > 0 && ((MessageType*)mgmt_buf)[0] == MSG_TYPE_MGMT_COMMAND) {
                     MgmtCommandMessage* msg = (MgmtCommandMessage*)mgmt_buf;
-                    process_management_command(msg->cmd_str);
+                    process_management_command(msg->cmd_str, &client_addr, client_len);
                 }
             }
             
@@ -579,9 +697,7 @@ int main(int argc, char* argv[]) {
             if (delay_ms > 2) { 
                 SDL_Delay(delay_ms - 2);
             }
-            while (SDL_GetPerformanceCounter() < next_frame_time) {
-                // Busy-wait
-            }
+            while (SDL_GetPerformanceCounter() < next_frame_time) {}
         } else {
             next_frame_time = SDL_GetPerformanceCounter() + frame_duration_ticks;
         }

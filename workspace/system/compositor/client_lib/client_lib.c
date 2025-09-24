@@ -10,25 +10,28 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 
-#define NUM_BUFFERS 2 // 双缓冲
+#define NUM_BUFFERS 2 
 
 typedef struct {
     void* ptr;
     int fd;
 } IonBuffer;
 
-static IonBuffer g_ion_buffers[NUM_BUFFERS];
-static int g_current_buffer_idx = 0;
+// NEW: All per-connection state is now in this struct
+struct ClientConnection {
+    int slot_id;
+    int socket_fd;
+    int mgmt_socket_fd;
+    int control_shm_fd;
+    ClientControlBlock* control_block_ptr;
+    struct SunxiMemOpsS* memops;
+    IonBuffer ion_buffers[NUM_BUFFERS];
+    int current_buffer_idx;
+    bool is_connected;
+};
 
-static int g_socket_fd = -1;
-static int g_mgmt_socket_fd = -1;
-static int g_control_shm_fd = -1;
-static ClientControlBlock* g_control_block_ptr = NULL;
-static struct SunxiMemOpsS* g_memops = NULL;
-
+// Process-wide state for signal handling remains global
 static volatile bool g_is_paused = true;
-// NEW: Connection status flag for robust error handling
-static volatile bool g_is_connected = false;
 
 static void pause_handler(int sig) { g_is_paused = true; }
 static void resume_handler(int sig) { g_is_paused = false; }
@@ -40,169 +43,179 @@ void client_install_signal_handlers() {
 
 bool client_is_paused() { return g_is_paused; }
 
-// MODIFIED: The function now returns the ID assigned by the compositor.
-// slot_hint is ignored by the new compositor logic but kept for API compatibility.
-int client_connect(int slot_hint) {
-    g_memops = GetMemAdapterOpsS();
-    if (SunxiMemOpen(g_memops) != 0) {
+int client_get_slot_id(ClientConnection* handle) {
+    if (!handle) return -1;
+    return handle->slot_id;
+}
+
+ClientConnection* client_connect(int slot_hint, const char* app_name, ClientType type) {
+    ClientConnection* handle = (ClientConnection*)calloc(1, sizeof(ClientConnection));
+    if (!handle) {
+        perror("malloc ClientConnection");
+        return NULL;
+    }
+    
+    // Initialize handle state
+    handle->slot_id = -1;
+    handle->socket_fd = -1;
+    handle->mgmt_socket_fd = -1;
+    handle->control_shm_fd = -1;
+
+    handle->memops = GetMemAdapterOpsS();
+    if (SunxiMemOpen(handle->memops) != 0) {
         perror("SunxiMemOpen");
-        return -1;
+        free(handle);
+        return NULL;
     }
 
     for (int i = 0; i < NUM_BUFFERS; i++) {
-        g_ion_buffers[i].ptr = SunxiMemPalloc(g_memops, DEMO_BUFFER_SIZE);
-        if (!g_ion_buffers[i].ptr) {
+        handle->ion_buffers[i].ptr = SunxiMemPalloc(handle->memops, DEMO_BUFFER_SIZE);
+        if (!handle->ion_buffers[i].ptr) {
             perror("SunxiMemPalloc");
-            SunxiMemClose(g_memops);
-            return -1;
+            // Cleanup already allocated buffers
+            for (int j = 0; j < i; j++) SunxiMemPfree(handle->memops, handle->ion_buffers[j].ptr);
+            SunxiMemClose(handle->memops);
+            free(handle);
+            return NULL;
         }
-        g_ion_buffers[i].fd = SunxiMemGetBufferFd(g_memops, g_ion_buffers[i].ptr);
-        if (g_ion_buffers[i].fd < 0) {
-            perror("SunxiMemGetBufferFd");
-            // Cleanup previously allocated buffers
-            for (int j = 0; j < i; j++) {
-                SunxiMemPfree(g_memops, g_ion_buffers[j].ptr);
-            }
-            SunxiMemClose(g_memops);
-            return -1;
-        }
+        handle->ion_buffers[i].fd = SunxiMemGetBufferFd(handle->memops, handle->ion_buffers[i].ptr);
     }
-    g_current_buffer_idx = 0;
-    
-    g_socket_fd = socket(AF_UNIX, SOCK_STREAM, 0);
-    if (g_socket_fd == -1) {
+
+    handle->socket_fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (handle->socket_fd == -1) {
         perror("socket");
-        return -1; // Early exit, no resources to clean yet other than ION
+        client_disconnect(handle); // Use disconnect for proper cleanup
+        return NULL; 
     }
+    
     struct sockaddr_un addr;
     memset(&addr, 0, sizeof(addr));
     addr.sun_family = AF_UNIX;
     strncpy(addr.sun_path, SOCKET_PATH, sizeof(addr.sun_path) - 1);
-
-    if (connect(g_socket_fd, (struct sockaddr*)&addr, sizeof(addr)) == -1) {
+    if (connect(handle->socket_fd, (struct sockaddr*)&addr, sizeof(addr)) == -1) {
         perror("connect to compositor socket");
-        close(g_socket_fd);
-        g_socket_fd = -1;
-        return -1;
+        client_disconnect(handle);
+        return NULL;
     }
 
-    // --- NEW: Compositor-assigned ID logic ---
     RegisterMessage reg_msg;
     reg_msg.type = MSG_TYPE_REGISTER;
     reg_msg.pid = getpid();
-    reg_msg.slot_id = slot_hint; // Keep for compatibility, but compositor ignores it
+    reg_msg.slot_id = slot_hint; 
+    reg_msg.client_type = type;
+    strncpy(reg_msg.app_name, app_name, sizeof(reg_msg.app_name) - 1);
+    reg_msg.app_name[sizeof(reg_msg.app_name) - 1] = '\0';
 
-    if (write(g_socket_fd, &reg_msg, sizeof(reg_msg)) != sizeof(reg_msg)) {
+    if (write(handle->socket_fd, &reg_msg, sizeof(reg_msg)) != sizeof(reg_msg)) {
         perror("Failed to send registration message");
-        close(g_socket_fd);
-        g_socket_fd = -1;
-        return -1;
+        client_disconnect(handle);
+        return NULL;
     }
 
-    int assigned_slot_id = -1;
-    ssize_t n = read(g_socket_fd, &assigned_slot_id, sizeof(assigned_slot_id));
-    if (n != sizeof(assigned_slot_id) || assigned_slot_id < 0) {
-        fprintf(stderr, "Failed to get a valid slot ID from compositor (is it full?).\n");
-        close(g_socket_fd);
-        g_socket_fd = -1;
-        return -1;
+    ssize_t n = read(handle->socket_fd, &handle->slot_id, sizeof(handle->slot_id));
+    if (n != sizeof(handle->slot_id) || handle->slot_id < 0) {
+        fprintf(stderr, "Failed to get a valid slot ID from compositor.\n");
+        client_disconnect(handle);
+        return NULL;
     }
-    printf("Client: Successfully registered with compositor, assigned Slot ID: %d\n", assigned_slot_id);
-    // --- End of new logic ---
+    printf("Client '%s': Successfully registered, assigned Slot ID: %d\n", app_name, handle->slot_id);
 
-    g_mgmt_socket_fd = socket(AF_UNIX, SOCK_DGRAM, 0);
-    if (g_mgmt_socket_fd == -1) {
+    handle->mgmt_socket_fd = socket(AF_UNIX, SOCK_DGRAM, 0);
+    if (handle->mgmt_socket_fd == -1) {
         perror("mgmt socket");
-        close(g_socket_fd);
-        g_socket_fd = -1;
-        return -1;
+        client_disconnect(handle);
+        return NULL;
     }
+
+    char client_mgmt_path[128];
+    snprintf(client_mgmt_path, sizeof(client_mgmt_path), "/tmp/client_mgmt_%d_%d", getpid(), handle->slot_id);
+    unlink(client_mgmt_path);
+    memset(&addr, 0, sizeof(addr));
+    addr.sun_family = AF_UNIX;
+    strncpy(addr.sun_path, client_mgmt_path, sizeof(addr.sun_path) - 1);
+    if (bind(handle->mgmt_socket_fd, (struct sockaddr*)&addr, sizeof(addr)) == -1) {
+        perror("bind client mgmt socket");
+        client_disconnect(handle);
+        return NULL;
+    }
+    
     memset(&addr, 0, sizeof(addr));
     addr.sun_family = AF_UNIX;
     strncpy(addr.sun_path, MGMT_SOCKET_PATH, sizeof(addr.sun_path) - 1);
-    if (connect(g_mgmt_socket_fd, (struct sockaddr*)&addr, sizeof(addr)) == -1) {
+    if (connect(handle->mgmt_socket_fd, (struct sockaddr*)&addr, sizeof(addr)) == -1) {
         perror("connect to compositor mgmt socket");
-        close(g_socket_fd);
-        g_socket_fd = -1;
-        close(g_mgmt_socket_fd);
-        g_mgmt_socket_fd = -1;
-        return -1;
+        client_disconnect(handle);
+        return NULL;
     }
     
-    // MODIFIED: Open SHM using the ID assigned by the compositor
     char shm_path[64];
-    snprintf(shm_path, sizeof(shm_path), "%s_%d", SHM_CONTROL_PATH_PREFIX, assigned_slot_id);
-    g_control_shm_fd = shm_open(shm_path, O_RDWR, 0);
-    if (g_control_shm_fd == -1) { 
+    snprintf(shm_path, sizeof(shm_path), "%s_%d", SHM_CONTROL_PATH_PREFIX, handle->slot_id);
+    handle->control_shm_fd = shm_open(shm_path, O_RDWR, 0);
+    if (handle->control_shm_fd == -1) { 
         perror("control shm_open");
-        client_disconnect(assigned_slot_id); // Use new ID for potential cleanup
-        return -1;
+        client_disconnect(handle); 
+        return NULL;
     }
-    g_control_block_ptr = mmap(NULL, sizeof(ClientControlBlock), PROT_READ | PROT_WRITE, MAP_SHARED, g_control_shm_fd, 0);
-    if (g_control_block_ptr == MAP_FAILED) {
+    handle->control_block_ptr = mmap(NULL, sizeof(ClientControlBlock), PROT_READ | PROT_WRITE, MAP_SHARED, handle->control_shm_fd, 0);
+    if (handle->control_block_ptr == MAP_FAILED) {
         perror("control mmap");
-        client_disconnect(assigned_slot_id);
-        return -1;
+        client_disconnect(handle);
+        return NULL;
     }
     
-    g_is_connected = true; // Set connected state to true
-    return assigned_slot_id; // Return the valid, assigned ID
+    handle->is_connected = true; 
+    return handle; 
 }
 
-void client_disconnect(int slot_id) {
-    g_is_connected = false; // Set connected state to false
-    if (g_socket_fd != -1) {
-        close(g_socket_fd);
-        g_socket_fd = -1;
-    }
-    if (g_mgmt_socket_fd != -1) {
-        close(g_mgmt_socket_fd);
-        g_mgmt_socket_fd = -1;
-    }
-    if (g_control_block_ptr) {
-        munmap(g_control_block_ptr, sizeof(ClientControlBlock));
-        g_control_block_ptr = NULL;
-    }
-    if (g_control_shm_fd != -1) {
-        close(g_control_shm_fd);
-        g_control_shm_fd = -1;
-    }
-    if (g_memops) {
+void client_disconnect(ClientConnection* handle) {
+    if (!handle) return;
+
+    handle->is_connected = false; 
+
+    char client_mgmt_path[128];
+    snprintf(client_mgmt_path, sizeof(client_mgmt_path), "/tmp/client_mgmt_%d_%d", getpid(), handle->slot_id);
+    unlink(client_mgmt_path);
+
+    if (handle->socket_fd != -1) close(handle->socket_fd);
+    if (handle->mgmt_socket_fd != -1) close(handle->mgmt_socket_fd);
+    if (handle->control_block_ptr) munmap(handle->control_block_ptr, sizeof(ClientControlBlock));
+    if (handle->control_shm_fd != -1) close(handle->control_shm_fd);
+
+    if (handle->memops) {
         for (int i = 0; i < NUM_BUFFERS; i++) {
-            if(g_ion_buffers[i].ptr) {
-                SunxiMemPfree(g_memops, g_ion_buffers[i].ptr);
-                g_ion_buffers[i].ptr = NULL;
+            if(handle->ion_buffers[i].ptr) {
+                SunxiMemPfree(handle->memops, handle->ion_buffers[i].ptr);
             }
         }
-        SunxiMemClose(g_memops);
-        g_memops = NULL;
+        SunxiMemClose(handle->memops);
     }
+    free(handle);
 }
 
-uint8_t* client_get_render_buffer(int slot_id) {
-    return (uint8_t*)g_ion_buffers[g_current_buffer_idx].ptr;
+uint8_t* client_get_render_buffer(ClientConnection* handle) {
+    if (!handle || !handle->is_connected) return NULL;
+    return (uint8_t*)handle->ion_buffers[handle->current_buffer_idx].ptr;
 }
 
-void client_present(int slot_id, uint8_t* buffer_ptr) {
-    // MODIFIED: Check connection status before proceeding
-    if (g_socket_fd == -1 || !g_is_connected) return;
+void client_present(ClientConnection* handle, uint8_t* buffer_ptr) {
+    if (!handle || handle->socket_fd == -1 || !handle->is_connected) return;
 
     int presented_idx = -1;
     for (int i = 0; i < NUM_BUFFERS; i++) {
-        if (g_ion_buffers[i].ptr == buffer_ptr) {
+        if (handle->ion_buffers[i].ptr == buffer_ptr) {
             presented_idx = i;
             break;
         }
     }
     if (presented_idx == -1) return;
 
-    if (g_memops && g_ion_buffers[presented_idx].ptr) {
-        SunxiMemFlushCache(g_memops, g_ion_buffers[presented_idx].ptr, DEMO_BUFFER_SIZE);
+    if (handle->memops) {
+        SunxiMemFlushCache(handle->memops, handle->ion_buffers[presented_idx].ptr, DEMO_BUFFER_SIZE);
     }
 
     PresentFrameMessage msg;
     msg.type = MSG_TYPE_PRESENT_FRAME;
-    msg.slot_id = slot_id;
+    msg.slot_id = handle->slot_id;
 
     char cmsg_buf[CMSG_SPACE(sizeof(int))];
     struct msghdr msgh = {0};
@@ -210,7 +223,6 @@ void client_present(int slot_id, uint8_t* buffer_ptr) {
     
     iov[0].iov_base = &msg;
     iov[0].iov_len = sizeof(msg);
-
     msgh.msg_iov = iov;
     msgh.msg_iovlen = 1;
     msgh.msg_control = cmsg_buf;
@@ -220,59 +232,88 @@ void client_present(int slot_id, uint8_t* buffer_ptr) {
     cmsg->cmsg_level = SOL_SOCKET;
     cmsg->cmsg_type = SCM_RIGHTS;
     cmsg->cmsg_len = CMSG_LEN(sizeof(int));
-    *(int*)CMSG_DATA(cmsg) = g_ion_buffers[presented_idx].fd;
+    *(int*)CMSG_DATA(cmsg) = handle->ion_buffers[presented_idx].fd;
     
-    if (sendmsg(g_socket_fd, &msgh, 0) < 0) {
+    if (sendmsg(handle->socket_fd, &msgh, 0) < 0) {
         perror("Client: sendmsg failed, disconnecting");
-        client_disconnect(slot_id); // Gracefully disconnect
+        handle->is_connected = false; // Mark as disconnected to prevent further calls
         return;
     }
 
     char ack_buffer;
-    ssize_t n = read(g_socket_fd, &ack_buffer, 1);
-    
-    // MODIFIED: Robust error handling for ACK read
+    ssize_t n = read(handle->socket_fd, &ack_buffer, 1);
     if (n <= 0) {
-        if (n == 0) {
-            fprintf(stderr, "Client: Compositor closed the connection while waiting for ACK.\n");
-        } else {
-            perror("Client: Failed to read ACK from compositor");
-        }
-        client_disconnect(slot_id); // Gracefully disconnect
+        handle->is_connected = false;
         return;
     }
 
-    g_current_buffer_idx = (g_current_buffer_idx + 1) % NUM_BUFFERS;
+    handle->current_buffer_idx = (handle->current_buffer_idx + 1) % NUM_BUFFERS;
 }
 
 
-static void send_management_command(const char* cmd) {
-    if (g_mgmt_socket_fd == -1 || !g_is_connected) return;
+static void send_management_command(ClientConnection* handle, const char* cmd) {
+    if (!handle || handle->mgmt_socket_fd == -1 || !handle->is_connected) return;
     MgmtCommandMessage msg;
     msg.type = MSG_TYPE_MGMT_COMMAND;
     strncpy(msg.cmd_str, cmd, sizeof(msg.cmd_str) - 1);
     msg.cmd_str[sizeof(msg.cmd_str) - 1] = '\0';
-
-    printf("Client: Sending MGMT command: [%s]\n", msg.cmd_str);
-    fflush(stdout);
-
-    write(g_mgmt_socket_fd, &msg, sizeof(msg));
+    write(handle->mgmt_socket_fd, &msg, sizeof(msg));
 }
 
-void client_request_exclusive(int slot_id) {
-    char cmd[64];
-    snprintf(cmd, sizeof(cmd), "REQUEST_EXCLUSIVE %d", slot_id);
-    send_management_command(cmd);
-}
-
-void client_release_exclusive(int slot_id) {
-    char cmd[64];
-    snprintf(cmd, sizeof(cmd), "RELEASE_EXCLUSIVE %d", slot_id);
-    send_management_command(cmd);
-}
-
-void client_enable_render_pause(int slot_id) {
-    if (g_control_block_ptr) {
-        g_control_block_ptr->supports_render_pause = true;
+void client_enable_render_pause(ClientConnection* handle) {
+    if (handle && handle->control_block_ptr) {
+        handle->control_block_ptr->supports_render_pause = true;
     }
+}
+
+void client_set_exclusive_support(ClientConnection* handle, bool supported) {
+    if (handle && handle->control_block_ptr) {
+        handle->control_block_ptr->supports_exclusive_mode = supported;
+    }
+}
+
+void client_set_foreground(ClientConnection* handle, const char* mode) {
+    char cmd[128];
+    snprintf(cmd, sizeof(cmd), "SET_FOREGROUND %d %s", handle->slot_id, mode);
+    send_management_command(handle, cmd);
+}
+
+void client_hide(ClientConnection* handle) {
+    char cmd[128];
+    snprintf(cmd, sizeof(cmd), "HIDE_CLIENT %d", handle->slot_id);
+    send_management_command(handle, cmd);
+}
+
+void client_terminate(ClientConnection* handle) {
+    char cmd[128];
+    snprintf(cmd, sizeof(cmd), "TERMINATE_CLIENT %d", handle->slot_id);
+    send_management_command(handle, cmd);
+}
+
+void client_set_overlay(ClientConnection* handle) {
+    char cmd[128];
+    snprintf(cmd, sizeof(cmd), "SET_OVERLAY %d", handle->slot_id);
+    send_management_command(handle, cmd);
+}
+
+void client_clear_overlay(ClientConnection* handle) {
+    send_management_command(handle, "CLEAR_OVERLAY");
+}
+
+int client_list_clients(ClientConnection* handle, ClientListResponse* response) {
+    if (!handle || handle->mgmt_socket_fd == -1 || !handle->is_connected || !response) return -1;
+    
+    send_management_command(handle, "LIST_CLIENTS");
+    
+    struct timeval tv = { .tv_sec = 1, .tv_usec = 0 };
+    setsockopt(handle->mgmt_socket_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
+    ssize_t n = recv(handle->mgmt_socket_fd, response, sizeof(ClientListResponse), 0);
+
+    if (n < 0 || n != sizeof(ClientListResponse)) {
+        if (n < 0) perror("recv for client list");
+        else fprintf(stderr, "Received incomplete client list\n");
+        return -1;
+    }
+    return 0;
 }

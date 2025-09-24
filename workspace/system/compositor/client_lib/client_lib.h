@@ -6,21 +6,77 @@
 #include <stdbool.h>
 #include "protocol.h"
 
-// Functions for client applications
-int client_connect(int slot_hint);
-void client_disconnect(int slot_id);
+// --- NEW: Handle-based API ---
 
-// MODIFIED: 返回的是可直接渲染的ION缓冲区指针
-uint8_t* client_get_render_buffer(int slot_id); 
-void client_present(int slot_id, uint8_t* buffer_ptr); // 提交指定的buffer
+// Forward declaration of the opaque handle structure.
+// The user of the library only deals with pointers to it.
+struct ClientConnection;
+typedef struct ClientConnection ClientConnection;
 
-// Signal handling
+
+/**
+ * @brief Connects to the compositor and establishes a new client session.
+ * @param slot_hint A preferred slot ID, or -1 for any.
+ * @param app_name The name of this client part (e.g., "My App UI").
+ * @param type The type of client, used by the compositor for layout rules.
+ * @return A pointer to a ClientConnection handle on success, or NULL on failure.
+ */
+ClientConnection* client_connect(int slot_hint, const char* app_name, ClientType type);
+
+/**
+ * @brief Disconnects from the compositor and frees all associated resources.
+ * @param handle The connection handle returned by client_connect.
+ */
+void client_disconnect(ClientConnection* handle);
+
+/**
+ * @brief Retrieves a writable buffer for the client to render into.
+ * @param handle The connection handle.
+ * @return A pointer to the framebuffer memory, or NULL if not available.
+ */
+uint8_t* client_get_render_buffer(ClientConnection* handle);
+
+/**
+ * @brief Presents the rendered buffer to the compositor for display.
+ * @param handle The connection handle.
+ * @param buffer_ptr The pointer to the buffer that was just rendered, returned by client_get_render_buffer.
+ */
+void client_present(ClientConnection* handle, uint8_t* buffer_ptr);
+
+/**
+ * @brief Gets the slot ID assigned by the compositor for this connection.
+ * @param handle The connection handle.
+ * @return The assigned slot ID.
+ */
+int client_get_slot_id(ClientConnection* handle);
+
+
+// --- Process-Wide Functions ---
+
+/**
+ * @brief Installs signal handlers to respond to compositor's pause/resume signals.
+ * This only needs to be called once per process.
+ */
 void client_install_signal_handlers();
+
+/**
+ * @brief Checks if the process has been paused by the compositor.
+ * This is a process-wide state.
+ * @return True if the process is paused, false otherwise.
+ */
 bool client_is_paused();
 
-// Management commands
-void client_request_exclusive(int slot_id);
-void client_release_exclusive(int slot_id);
-void client_enable_render_pause(int slot_id);
+
+// --- Per-Connection Configuration and Commands ---
+
+void client_enable_render_pause(ClientConnection* handle);
+void client_set_exclusive_support(ClientConnection* handle, bool supported);
+
+void client_set_foreground(ClientConnection* handle, const char* mode);
+void client_hide(ClientConnection* handle);
+void client_terminate(ClientConnection* handle);
+void client_set_overlay(ClientConnection* handle);
+void client_clear_overlay(ClientConnection* handle);
+int client_list_clients(ClientConnection* handle, ClientListResponse* response);
 
 #endif // CLIENT_LIB_H
