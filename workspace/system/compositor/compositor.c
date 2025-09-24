@@ -23,6 +23,15 @@
 
 #include "protocol.h"
 
+// --- Debug HUD 相关 ---
+#include <SDL2/SDL_ttf.h>
+static bool g_debug_hud_enabled = false;
+static TTF_Font* g_debug_font = NULL;
+static GLuint g_debug_texture_id = 0;
+static GLuint g_debug_vbo = 0;
+static float g_current_fps = 0.0f;
+// --- 结束 ---
+
 
 static PFNEGLCREATEIMAGEKHRPROC eglCreateImageKHR_ptr = NULL;
 static PFNEGLDESTROYIMAGEKHRPROC eglDestroyImageKHR_ptr = NULL;
@@ -47,7 +56,7 @@ static int g_active_slot = -1;
 static int g_overlay_slot = -1;
 static bool g_exclusive_mode = false;
 static int g_exclusive_slot = -1;
-static int g_home_slot = -1; // 新增：用于存储 Home 应用的插槽 ID
+static int g_home_slot = -1; 
 
 
 static SDL_Window* g_window = NULL;
@@ -97,6 +106,19 @@ static int init_sdl_and_gl() {
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
         fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
         return -1;
+    }
+
+    if (g_debug_hud_enabled) {
+        if (TTF_Init() == -1) {
+            fprintf(stderr, "TTF_Init failed: %s\n", TTF_GetError());
+            return -1;
+        }
+        const char* font_path = "/mnt/SDCARD/.system/res/font.ttf";
+        g_debug_font = TTF_OpenFont(font_path, 18);
+        if (!g_debug_font) {
+            fprintf(stderr, "Failed to load debug font at %s: %s\n", font_path, TTF_GetError());
+            g_debug_hud_enabled = false; 
+        }
     }
 
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
@@ -184,6 +206,17 @@ static void render_slot(int slot_id, bool blend) {
         return;
     }
 
+    glUseProgram(g_shader_program);
+    glBindBuffer(GL_ARRAY_BUFFER, g_vbo);
+
+    GLint pos_loc = glGetAttribLocation(g_shader_program, "a_position");
+    glEnableVertexAttribArray(pos_loc);
+    glVertexAttribPointer(pos_loc, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), (void*)0);
+
+    GLint tex_loc = glGetAttribLocation(g_shader_program, "a_texCoord");
+    glEnableVertexAttribArray(tex_loc);
+    glVertexAttribPointer(tex_loc, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), (void*)(2 * sizeof(GLfloat)));
+
     if (blend) {
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -196,6 +229,87 @@ static void render_slot(int slot_id, bool blend) {
     glUniform1i(sampler_loc, 0);
 
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+}
+
+static void render_debug_hud() {
+    if (!g_debug_hud_enabled || !g_debug_font) {
+        return;
+    }
+
+    char debug_text[256];
+    const char* active_client_name = (g_active_slot != -1) ? g_client_slots[g_active_slot].control->app_name : "None";
+    const char* overlay_client_name = (g_overlay_slot != -1) ? g_client_slots[g_overlay_slot].control->app_name : "None";
+    const char* exclusive_client_name = (g_exclusive_slot != -1) ? g_client_slots[g_exclusive_slot].control->app_name : "None";
+
+    snprintf(debug_text, sizeof(debug_text), "FPS: %.1f | Active: %s (slot %d) | Overlay: %s (slot %d) | Exclusive: %s (slot %d)",
+        g_current_fps,
+        active_client_name, g_active_slot,
+        overlay_client_name, g_overlay_slot,
+        exclusive_client_name, g_exclusive_slot
+    );
+
+    SDL_Color color = {255, 220, 0, 255}; 
+    SDL_Surface* text_surface = TTF_RenderText_Blended_Wrapped(g_debug_font, debug_text, color, DEMO_WIDTH);
+    if (!text_surface) {
+        return;
+    }
+
+    SDL_Surface* rgba_surface = SDL_CreateRGBSurfaceWithFormat(0, text_surface->w, text_surface->h, 32, SDL_PIXELFORMAT_RGBA32);
+    if (!rgba_surface) {
+        SDL_FreeSurface(text_surface);
+        fprintf(stderr, "Failed to create RGBA surface for HUD: %s\n", SDL_GetError());
+        return;
+    }
+    SDL_BlitSurface(text_surface, NULL, rgba_surface, NULL);
+    SDL_FreeSurface(text_surface); 
+
+    if (g_debug_texture_id == 0) {
+        glGenTextures(1, &g_debug_texture_id);
+        glBindTexture(GL_TEXTURE_2D, g_debug_texture_id);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    }
+    glBindTexture(GL_TEXTURE_2D, g_debug_texture_id);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, rgba_surface->w, rgba_surface->h, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba_surface->pixels);
+    
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    
+    glUseProgram(g_shader_program);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, g_debug_texture_id);
+    GLint sampler_loc = glGetUniformLocation(g_shader_program, "s_texture");
+    glUniform1i(sampler_loc, 0);
+
+    float hud_height = (float)rgba_surface->h / (float)DEMO_HEIGHT;
+    GLfloat vertices[] = {
+        -1.0f,  1.0f,                  0.0f, 0.0f,
+        -1.0f,  1.0f - hud_height * 2, 0.0f, 1.0f,
+         1.0f,  1.0f,                  1.0f, 0.0f,
+         1.0f,  1.0f - hud_height * 2, 1.0f, 1.0f
+    };
+
+    if (g_debug_vbo == 0) {
+        glGenBuffers(1, &g_debug_vbo);
+    }
+    glBindBuffer(GL_ARRAY_BUFFER, g_debug_vbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_DYNAMIC_DRAW);
+
+    GLint pos_loc = glGetAttribLocation(g_shader_program, "a_position");
+    glEnableVertexAttribArray(pos_loc);
+    glVertexAttribPointer(pos_loc, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), (void*)0);
+
+    GLint tex_loc = glGetAttribLocation(g_shader_program, "a_texCoord");
+    glEnableVertexAttribArray(tex_loc);
+    glVertexAttribPointer(tex_loc, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), (void*)(2 * sizeof(GLfloat)));
+    
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+    glDisable(GL_BLEND);
+
+    SDL_FreeSurface(rgba_surface);
 }
 
 static int setup_ipc() {
@@ -516,6 +630,14 @@ void cleanup() {
         snprintf(shm_path, sizeof(shm_path), "%s_%d", SHM_CONTROL_PATH_PREFIX, i);
         shm_unlink(shm_path);
     }
+
+    if (g_debug_vbo) glDeleteBuffers(1, &g_debug_vbo);
+    if (g_debug_texture_id) glDeleteTextures(1, &g_debug_texture_id);
+    if (g_debug_font) TTF_CloseFont(g_debug_font);
+    if (TTF_WasInit()) {
+        TTF_Quit();
+    }
+
     if (g_vbo) glDeleteBuffers(1, &g_vbo);
     if (g_shader_program) glDeleteProgram(g_shader_program);
     if (g_gl_context) SDL_GL_DeleteContext(g_gl_context);
@@ -529,9 +651,15 @@ int main(int argc, char* argv[]) {
             g_home_slot = atoi(argv[i + 1]);
             i++; 
         }
+        else if (strcmp(argv[i], "--debug") == 0) {
+            g_debug_hud_enabled = true;
+        }
     }
     if (g_home_slot != -1) {
         printf("Compositor: Home slot designated to %d\n", g_home_slot);
+    }
+    if (g_debug_hud_enabled) {
+        printf("Compositor: Debug HUD is enabled.\n");
     }
 
     signal(SIGINT, handle_signal);
@@ -553,6 +681,8 @@ int main(int argc, char* argv[]) {
     uint64_t frame_duration_ticks = (uint64_t)(perf_freq / target_fps);
     uint64_t next_frame_time = SDL_GetPerformanceCounter();
 
+    uint32_t frame_count = 0;
+    uint32_t last_fps_update_time = SDL_GetTicks();
 
     while (g_running) {
         if (!g_exclusive_mode && g_active_slot == -1 && g_home_slot != -1) {
@@ -624,8 +754,7 @@ int main(int argc, char* argv[]) {
                                 g_client_slots[assigned_slot].control->client_pid = reg_msg.pid;
                                 g_client_slots[assigned_slot].control->client_type = reg_msg.client_type;
                                 strncpy(g_client_slots[assigned_slot].control->app_name, reg_msg.app_name, sizeof(g_client_slots[assigned_slot].control->app_name));
-                                printf("Client '%s' (PID %d) connected and assigned to slot %d\n", reg_msg.app_name, reg_msg.pid, assigned_slot);
-
+                                
                                 if (reg_msg.client_type == CLIENT_TYPE_OVERLAY) {
                                     printf("Compositor: Auto-activating new client in slot %d ('%s') as overlay.\n", assigned_slot, reg_msg.app_name);
                                     if (g_overlay_slot != -1) {
@@ -671,15 +800,6 @@ int main(int argc, char* argv[]) {
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
-        glUseProgram(g_shader_program);
-        glBindBuffer(GL_ARRAY_BUFFER, g_vbo);
-        GLint pos_loc = glGetAttribLocation(g_shader_program, "a_position");
-        glEnableVertexAttribArray(pos_loc);
-        glVertexAttribPointer(pos_loc, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), (void*)0);
-        GLint tex_loc = glGetAttribLocation(g_shader_program, "a_texCoord");
-        glEnableVertexAttribArray(tex_loc);
-        glVertexAttribPointer(tex_loc, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), (void*)(2 * sizeof(GLfloat)));
-
         if (g_exclusive_mode) {
             render_slot(g_exclusive_slot, false);
         } else {
@@ -687,7 +807,17 @@ int main(int argc, char* argv[]) {
             render_slot(g_overlay_slot, true);
         }
         
+        render_debug_hud();
+
         SDL_GL_SwapWindow(g_window);
+
+        frame_count++;
+        uint32_t current_ticks = SDL_GetTicks();
+        if (current_ticks - last_fps_update_time >= 1000) {
+            g_current_fps = (float)frame_count / ((float)(current_ticks - last_fps_update_time) / 1000.0f);
+            frame_count = 0;
+            last_fps_update_time = current_ticks;
+        }
 
         next_frame_time += frame_duration_ticks;
         uint64_t current_time = SDL_GetPerformanceCounter();

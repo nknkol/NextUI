@@ -28,7 +28,7 @@ CFLAGS          = -Wall -O2 -g -std=gnu99 -DUSE_SDL2 $(INCDIRS) -DPLATFORM=\"$(P
 
 # --- 链接库定义 ---
 # MODIFIED: 合成器的新链接选项，只包含必要的库
-COMPOSITOR_LDFLAGS = -lrt -lpthread `sdl2-config --libs` -lGLESv2 -lEGL
+COMPOSITOR_LDFLAGS = -lrt -lpthread `sdl2-config --libs` -lSDL2_ttf -lGLESv2 -lEGL
 
 # 具备完整UI功能的程序所需的链接选项
 GFX_LDFLAGS = -L$(MSETTINGS_LIB_DIR) -lmsettings -lwifid -lwifimg -lsamplerate -lrt -lpthread `sdl2-config --libs` -lSDL2_ttf -lm -lSDL2_image -lGLESv2 -ldl -lbtmg -lglib-2.0 -lgio-2.0 -lshared-mainloop -lbluetooth-internal -lasound -ljson-c -luapi
