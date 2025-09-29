@@ -104,7 +104,7 @@ lib:
 	cp $(SRC_APP_DIR)/minarch/build/$(PLATFORM)/libbz2.* $(SYSTEM_LIB)/
 	cp $(SRC_APP_DIR)/minarch/build/$(PLATFORM)/liblzma.* $(SYSTEM_LIB)/
 	cp $(SRC_APP_DIR)/minarch/build/$(PLATFORM)/libzstd.* $(SYSTEM_LIB)/
-	cp $(SRC_LIB_DIR)/libcommon/libcommon.so $(SYSTEM_LIB)/
+	cp $(SRC_LIB_DIR)/libcommon/build/$(PLATFORM)/libcommon.so $(SYSTEM_LIB)/
 	cp $(SRC_LIB_DIR)/libmsettings/libmsettings.so $(SYSTEM_LIB)/
 	cp $(SRC_LIB_DIR)/libbatmondb/build/$(PLATFORM)/libbatmondb.so $(SYSTEM_LIB)/
 	cp $(SRC_LIB_DIR)/libgametimedb/build/$(PLATFORM)/libgametimedb.so $(SYSTEM_LIB)/
