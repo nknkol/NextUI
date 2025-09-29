@@ -295,11 +295,6 @@ shell:
 # =============================================================================
 # ADB 推送 (push) 功能定义
 # =============================================================================
-nextui_SRC      := workspace/apps/nextui/build/tg5040/nextui.elf
-nextui_DEST     := /mnt/SDCARD/.system/bin
-nextui_COMMANDS := @echo "--> 正在推送 nextui..." && \
-                   adb push $(nextui_SRC) $(nextui_DEST) && \
-				   adb reboot
 
 minarch_SRC      := workspace/other_apps/minarch/build/tg5040/minarch.elf
 minarch_DEST     := /mnt/SDCARD/.system/bin
@@ -331,6 +326,15 @@ compositor_COMMANDS       := @echo "--> 正在推送compositor..." && \
 					  adb push $(compositorlaunch_SRC) $(compositor_DEST)
 
 nextui_SRC      := workspace/apps/nextui/build/tg5040/nextui.elf
+nextui_launch_SRC := skeleton/SYSTEM/paks/MinUI.pak/launch.sh
+nextui_DEST     := /mnt/SDCARD/.system
+nextui_COMMANDS := @echo "--> 正在推送 nextui..." && \
+                   adb push $(nextui_SRC) $(nextui_DEST)/bin && \
+				   adb push $(compositor_SRC) $(nextui_DEST)/bin && \
+				   adb push $(nextui_launch_SRC) $(nextui_DEST)/paks/MinUI.pak/ && \
+				   adb reboot
+				   
+nextui_SRC      := workspace/apps/nextui/build/tg5040/nextui.elf
 default_COMMANDS := echo "--> 正在构建并打包以供更新 (默认操作)..." && \
                     make all && \
                     echo "--> 正在推送 MinUI.zip 到设备的 SD 卡..." && \
@@ -350,5 +354,25 @@ push:
 	fi
 	# 在这里加上 @，让 make 来处理命令回显
 	@$($(PROGRAM)_COMMANDS)
+	@echo "--> 操作完成。"
+
+
+logs      := /mnt/SDCARD/.userdata/tg5040/logs
+default_PULLCOMMANDS := echo "--> 正在拉取 NexUI 日志到项目根目录..." && \
+                    adb pull $(logs)/nextui.txt && \
+                    echo "--> 更新包推送完成。"
+
+# 根据 PROGRAM 变量选择最终执行的命令
+PROGRAM ?= default
+FINAL_PULLCOMMANDS  := $($(PROGRAM)_PULLCOMMANDS)
+
+pull:
+	@if [ "$(origin $(PROGRAM)_PULLCOMMANDS)" = "undefined" ]; then \
+		echo "错误: 未找到 PROGRAM='$(PROGRAM)' 的拉取配置。"; \
+		echo "可用配置: default "; \
+		exit 1; \
+	fi
+	# 在这里加上 @，让 make 来处理命令回显
+	@$($(PROGRAM)_PULLCOMMANDS)
 	@echo "--> 操作完成。"
 # =============================================================================
