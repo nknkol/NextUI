@@ -268,27 +268,27 @@ Continue --> StartMainLoop
 
 ```mermaid
 graph LR
-subgraph "客户端"
-A[应用进程]
-B[控制块共享内存]
-C[管理套接字]
-D[帧传输套接字]
-end
-subgraph "合成器"
-E[合成器进程]
-F[控制块共享内存]
-G[管理套接字]
-H[帧传输套接字]
-end
-B < --> F
-C < --> G
-D < --> H
-A --> B
-A --> C
-A --> D
-E --> F
-E --> G
-E --> H
+    subgraph "客户端"
+        A["应用进程"] 
+        B["控制块共享内存"] 
+        C["管理套接字"] 
+        D["帧传输套接字"]
+    end
+    subgraph "合成器"
+        E["合成器进程"] 
+        F["控制块共享内存"] 
+        G["管理套接字"] 
+        H["帧传输套接字"]
+    end
+    B <--> F
+    C <--> G
+    D <--> H
+    A --> B
+    A --> C
+    A --> D
+    E --> F
+    E --> G
+    E --> H
 ```
 
 **图示来源**
