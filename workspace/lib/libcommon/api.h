@@ -251,6 +251,7 @@ enum {
 };
 
 SDL_Surface* GFX_init(int mode);
+#define GFX_isCompositorMode PLAT_isCompositorMode		
 #define GFX_resize PLAT_resizeVideo				// (int w, int h, int pitch);
 #define GFX_setScaleClip PLAT_setVideoScaleClip // (int x, int y, int width, int height)
 #define GFX_setSharpness PLAT_setSharpness // (int sharpness)

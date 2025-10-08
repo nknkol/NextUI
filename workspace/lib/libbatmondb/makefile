@@ -31,8 +31,10 @@ TARGET=batmondb
 CC = $(CROSS_COMPILE)gcc
 
 SYSROOT     := $(shell $(CC) --print-sysroot)
+COMPOSITOR_DIR = ../../system/compositor
+CLIENT_LIB_DIR = $(COMPOSITOR_DIR)/client_lib
 
-INCDIR = -I. -I../libcommon/
+INCDIR = -I. -I../libcommon/ -I$(COMPOSITOR_DIR) -I$(CLIENT_LIB_DIR)
 SOURCE = $(TARGET).c ../libcommon/utils.c ../libcommon/api.c ../libcommon/platform.c
 
 CFLAGS  += $(ARCH) -fomit-frame-pointer

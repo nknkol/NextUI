@@ -18,15 +18,17 @@ SDL?=SDL
 
 TARGET = nextui
 
-INCDIR = -I./include -I$(PREFIX_LOCAL)/include
+COMPOSITOR_DIR = ../../system/compositor
+CLIENT_LIB_DIR = $(COMPOSITOR_DIR)/client_lib
+INCDIR = -I./include -I$(PREFIX_LOCAL)/include -I$(COMPOSITOR_DIR) -I$(CLIENT_LIB_DIR)
 
-SOURCE = $(TARGET).c datastructures.c browser.c uimanager.c launcher.c async.c
-
+SOURCE = $(TARGET).c datastructures.c browser.c uimanager.c launcher.c async.c $(CLIENT_LIB_DIR)/client_lib.c
+ 
 CC = $(CROSS_COMPILE)gcc
 CFLAGS  += $(ARCH) -fomit-frame-pointer
 CFLAGS  += $(INCDIR) -DPLATFORM=\"$(PLATFORM)\" -std=gnu99
 
-LDFLAGS += -L$(PREFIX_LOCAL)/lib -lcommon -lmsettings
+LDFLAGS += -L$(PREFIX_LOCAL)/lib -lcommon -lmsettings -lrt -luapi -lEGL -lGLESv2
 
 ifeq ($(PLATFORM), tg5040)
 CFLAGS += -DHAS_WIFIMG

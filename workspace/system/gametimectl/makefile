@@ -20,7 +20,9 @@ SDL?=SDL
 ###########################################################
 
 TARGET = gametimectl
-INCDIR = -I. -I../../lib/libcommon/
+COMPOSITOR_DIR = ../../system/compositor
+CLIENT_LIB_DIR = $(COMPOSITOR_DIR)/client_lib 
+INCDIR = -I. -I../../lib/libcommon/ -I$(COMPOSITOR_DIR) -I$(CLIENT_LIB_DIR)
 SOURCE = $(TARGET).c ../../lib/libcommon/utils.c ../../lib/libcommon/api.c ../../lib/libcommon/scaler.c ../../lib/libcommon/config.c ../../lib/libcommon/platform.c
 
 CC = $(CROSS_COMPILE)gcc

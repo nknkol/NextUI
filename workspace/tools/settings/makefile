@@ -20,9 +20,26 @@ SDL?=SDL
 ###########################################################
 
 TARGET = settings
-INCDIR = -I. -I../../lib/libcommon/
-SOURCE = -c ../../lib/libcommon/lang.c ../../lib/libcommon/utils.c ../../lib/libcommon/api.c ../../lib/libcommon/config.c ../../lib/libcommon/scaler.c ../../lib/libcommon/platform.c
-CXXSOURCE = $(TARGET).cpp menu.cpp wifimenu.cpp keyboardprompt.cpp build/$(PLATFORM)/lang.o build/$(PLATFORM)/utils.o build/$(PLATFORM)/api.o build/$(PLATFORM)/config.o build/$(PLATFORM)/scaler.o build/$(PLATFORM)/platform.o
+COMPOSITOR_DIR = ../../system/compositor
+CLIENT_LIB_DIR = $(COMPOSITOR_DIR)/client_lib
+INCDIR = -I. -I../../lib/libcommon/ -I$(COMPOSITOR_DIR) -I$(CLIENT_LIB_DIR)
+SOURCE = -c ../../lib/libcommon/lang.c \
+../../lib/libcommon/utils.c \
+../../lib/libcommon/api.c \
+../../lib/libcommon/config.c \
+../../lib/libcommon/scaler.c \
+../../lib/libcommon/platform.c
+CXXSOURCE = $(TARGET).cpp \
+menu.cpp \
+wifimenu.cpp \
+keyboardprompt.cpp \
+build/$(PLATFORM)/lang.o \
+build/$(PLATFORM)/utils.o \
+build/$(PLATFORM)/api.o \
+build/$(PLATFORM)/config.o \
+build/$(PLATFORM)/scaler.o \
+build/$(PLATFORM)/platform.o \
+$(CLIENT_LIB_DIR)/client_lib.c
 
 CC = $(CROSS_COMPILE)gcc
 CXX = $(CROSS_COMPILE)g++
@@ -33,7 +50,7 @@ CFLAGS += -fpermissive
 LDFLAGS +=  -lmsettings
 ifeq ($(PLATFORM), tg5040)
 CFLAGS += -DHAS_WIFIMG
-LDFLAGS +=  -lwifimg -lwifid
+LDFLAGS +=  -lwifimg -lwifid -lrt -luapi -lEGL -lGLESv2
 endif
 
 PRODUCT= build/$(PLATFORM)/$(TARGET).elf

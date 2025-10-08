@@ -113,13 +113,13 @@ lib:
 	cp $(SRC_OTHER_DIR)/libtsm/build/src/tsm/libtsm.so $(SYSTEM_LIB)/
 	cp $(SRC_OTHER_DIR)/libtsm/build/src/tsm/libtsm.so.4 $(SYSTEM_LIB)/
 
-	cp $(SRC_SYS_DIR)/compositor/build/$(PLATFORM)/app_A.elf $(EXTRAS_TOOLS)/Compositor.pak/
-	cp $(SRC_SYS_DIR)/compositor/build/$(PLATFORM)/app_B_overlay.elf $(EXTRAS_TOOLS)/Compositor.pak/
+	# cp $(SRC_SYS_DIR)/compositor/build/$(PLATFORM)/app_A.elf $(EXTRAS_TOOLS)/Compositor.pak/
+	# cp $(SRC_SYS_DIR)/compositor/build/$(PLATFORM)/app_B_overlay.elf $(EXTRAS_TOOLS)/Compositor.pak/
 	cp $(SRC_SYS_DIR)/compositor/build/$(PLATFORM)/compositor.elf $(EXTRAS_TOOLS)/Compositor.pak/
 
-	cp $(SRC_SYS_DIR)/compositor/build/$(PLATFORM)/app_B_overlay.elf $(EXTRAS_TOOLS)/Exclusive.pak/
+	# cp $(SRC_SYS_DIR)/compositor/build/$(PLATFORM)/app_B_overlay.elf $(EXTRAS_TOOLS)/Exclusive.pak/
 	cp $(SRC_SYS_DIR)/compositor/build/$(PLATFORM)/compositor.elf $(EXTRAS_TOOLS)/Exclusive.pak/
-	cp $(SRC_SYS_DIR)/compositor/build/$(PLATFORM)/app_C_exclusive.elf $(EXTRAS_TOOLS)/Exclusive.pak/
+	# cp $(SRC_SYS_DIR)/compositor/build/$(PLATFORM)/app_C_exclusive.elf $(EXTRAS_TOOLS)/Exclusive.pak/
 
 
 apps:
@@ -295,11 +295,14 @@ shell:
 # =============================================================================
 # ADB 推送 (push) 功能定义
 # =============================================================================
-
-minarch_SRC      := workspace/other_apps/minarch/build/tg5040/minarch.elf
-minarch_DEST     := /mnt/SDCARD/.system/bin
+compositor_SRC      := workspace/system/compositor/build/tg5040/compositor.elf
+minarch_SRC      := workspace/apps/minarch/build/tg5040/minarch.elf
+minarch_DEST     := /mnt/SDCARD/.system
+lminarch_launch  := skeleton/SYSTEM/paks/Emus/GBA.pak/launch.sh
 minarch_COMMANDS := @echo "--> 正在推送 minarch..." && \
-                    adb push $(minarch_SRC) $(minarch_DEST)
+                    adb push $(minarch_SRC) $(minarch_DEST)/bin && \
+					adb push $(compositor_SRC) $(minarch_DEST)/bin && \
+                    adb push $(lminarch_launch) $(minarch_DEST)/paks/Emus/GBA.pak/
 
 libcommon_SRC      := workspace/lib/libcommon/libcommon.so
 clockplugin_SRC    := workspace/plugins/clock/build/tg5040/clock.so
@@ -310,7 +313,7 @@ lib_COMMANDS       := @echo "--> 正在推送库文件及插件..." && \
 				      adb push $(clockplugin_SRC) $(pluginlib_DEST)
 
 
-compositor_SRC      := workspace/system/compositor/build/tg5040/compositor.elf
+
 demo1_overlay_SRC    := workspace/system/compositor/build/tg5040/app_B_overlay.elf
 demo2_overlay_SRC    := workspace/system/compositor/build/tg5040/app_D_overlay.elf
 demo3_overlay_SRC    := workspace/system/compositor/build/tg5040/app_E_overlay.elf
@@ -362,6 +365,13 @@ default_PULLCOMMANDS := echo "--> 正在拉取 NexUI 日志到项目根目录...
                     adb pull $(logs)/nextui.txt && \
                     echo "--> 更新包推送完成。"
 
+
+minarch_PULLCOMMANDS := echo "--> 正在拉取 MinArch 日志到项目根目录..." && \
+                    adb pull $(logs)/GBA.txt logs/ && \
+					adb pull $(logs)/compositor.txt logs/ && \
+					adb pull $(logs)/launch_GBA.txt logs/ && \
+                    echo "--> 更新包推送完成。"
+
 # 根据 PROGRAM 变量选择最终执行的命令
 PROGRAM ?= default
 FINAL_PULLCOMMANDS  := $($(PROGRAM)_PULLCOMMANDS)
@@ -369,7 +379,7 @@ FINAL_PULLCOMMANDS  := $($(PROGRAM)_PULLCOMMANDS)
 pull:
 	@if [ "$(origin $(PROGRAM)_PULLCOMMANDS)" = "undefined" ]; then \
 		echo "错误: 未找到 PROGRAM='$(PROGRAM)' 的拉取配置。"; \
-		echo "可用配置: default "; \
+		echo "可用配置: default, minarch"; \
 		exit 1; \
 	fi
 	# 在这里加上 @，让 make 来处理命令回显

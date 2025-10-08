@@ -320,3 +320,14 @@ int client_list_clients(ClientConnection* handle, ClientListResponse* response) 
     }
     return 0;
 }
+
+ClientRenderTarget client_get_render_target(ClientConnection* handle) {
+    ClientRenderTarget target = { .ptr = NULL, .fd = -1 };
+    if (!handle || !handle->is_connected) {
+        return target;
+    }
+    
+    target.ptr = (uint8_t*)handle->ion_buffers[handle->current_buffer_idx].ptr;
+    target.fd = handle->ion_buffers[handle->current_buffer_idx].fd;
+    return target;
+}

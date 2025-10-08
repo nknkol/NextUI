@@ -4522,7 +4522,6 @@ static void screen_flip(SDL_Surface* screen) {
 	}
 	else {
 		GFX_GL_Swap();
-		// GFX_flip(screen);
 	}
 }
 
@@ -7028,7 +7027,7 @@ static void Menu_loop(void) {
 		}
 
 		PWR_update(&dirty, &show_setting, Menu_beforeSleep, Menu_afterSleep);
-		if(dirty) {
+		if(dirty || GFX_isCompositorMode()) {
 			GFX_clear(screen);
 
 			GFX_drawOnLayer(menu.bitmap,0,0,DEVICE_WIDTH,DEVICE_HEIGHT,0.4f,1,0);

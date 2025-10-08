@@ -186,10 +186,10 @@ static int init_sdl_and_gl() {
     glViewport(0, 0, DEMO_WIDTH, DEMO_HEIGHT);
 
     GLfloat vertices[] = {
-        -1.0f,  1.0f,   0.0f, 0.0f,
-        -1.0f, -1.0f,   0.0f, 1.0f,
-         1.0f,  1.0f,   1.0f, 0.0f,
-         1.0f, -1.0f,   1.0f, 1.0f
+        -1.0f,  1.0f,   0.0f, 1.0f,
+        -1.0f, -1.0f,   0.0f, 0.0f,
+         1.0f,  1.0f,   1.0f, 1.0f,
+         1.0f, -1.0f,   1.0f, 0.0f
     };
     
     glGenBuffers(1, &g_vbo);

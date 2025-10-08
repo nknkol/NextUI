@@ -374,6 +374,7 @@ void getEmuName(const char* in_name, char* out_name) { // NOTE: both char arrays
 	
 	// printf(" out_name: %s\n", out_name); fflush(stdout);
 }
+// extract emulator name from pak path PLATFORM bug
 void getEmuPath(char* emu_name, char* pak_path) {
 	sprintf(pak_path, "%s/Emus/%s/%s.pak/launch.sh", SDCARD_PATH, PLATFORM, emu_name);
 	if (exists(pak_path)) return;

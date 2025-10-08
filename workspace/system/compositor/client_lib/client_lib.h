@@ -5,7 +5,9 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "protocol.h"
-
+#ifdef __cplusplus
+extern "C" {
+#endif
 // --- NEW: Handle-based API ---
 
 // Forward declaration of the opaque handle structure.
@@ -50,6 +52,12 @@ void client_present(ClientConnection* handle, uint8_t* buffer_ptr);
  */
 int client_get_slot_id(ClientConnection* handle);
 
+typedef struct {
+    uint8_t* ptr;
+    int fd;
+} ClientRenderTarget;
+
+ClientRenderTarget client_get_render_target(ClientConnection* handle);
 
 // --- Process-Wide Functions ---
 
@@ -92,5 +100,10 @@ void client_set_overlay_region(ClientConnection* handle, int overlay_index, int 
 void client_clear_overlay_index(ClientConnection* handle, int overlay_index);
 
 int client_list_clients(ClientConnection* handle, ClientListResponse* response);
+
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // CLIENT_LIB_H

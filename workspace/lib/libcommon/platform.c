@@ -21,12 +21,119 @@
 #include "scaler.h"
 #include <time.h>
 #include <pthread.h>
+#include <arm_neon.h>
 
 #include <dirent.h>
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
+#include <GLES2/gl2.h>
+#include <GLES2/gl2ext.h>
+#include "client_lib.h"
+#include "protocol.h"
+
+//debug
+#define CHECK_GL_ERROR(label) do { \
+    GLenum err; \
+    while ((err = glGetError()) != GL_NO_ERROR) { \
+        LOG_error("[GL ERROR] at %s (%s:%d): 0x%04x\n", label, __FILE__, __LINE__, err); \
+    } \
+} while (0)
+
+// 双模上下文（静态，不暴露）
+typedef enum {
+    MODE_STANDALONE,
+    MODE_COMPOSITOR
+} RenderMode;
+
+static struct {
+    RenderMode mode;
+    bool initialized;
+    ClientConnection* conn;
+    int slot_id;
+} g_dual_ctx = {
+    .mode = MODE_STANDALONE,
+    .initialized = false,
+    .conn = NULL,
+    .slot_id = -1
+};
+
+// --- 新增：为合成器模式创建的OpenGL资源池 ---
+#define NUM_GL_BUFFERS 3 // 使用三重缓冲以获得更平滑的性能
+static struct {
+    bool initialized;
+    int current_index;
+    GLuint fbos[NUM_GL_BUFFERS];
+    GLuint textures[NUM_GL_BUFFERS];
+    EGLImageKHR egl_images[NUM_GL_BUFFERS];
+} g_compositor_gl_res = {
+    .initialized = false,
+    .current_index = 0
+};
+// --- 新增结束 ---
+
+bool PLAT_isCompositorMode(void) {
+    return g_dual_ctx.mode == MODE_COMPOSITOR;
+}
+static void swizzle_rgba_to_argb_fast(uint32_t* buffer, size_t pixel_count) {
+    for (size_t i = 0; i < pixel_count; ++i) {
+        uint32_t pixel = buffer[i];
+        buffer[i] = (pixel >> 8) | (pixel << 24); // NEON指令集优化
+    }
+}
+static bool init_dual_mode(void) {
+    if (g_dual_ctx.initialized) {
+        return true;
+    }
+    
+    LOG_info("Detecting render mode...\n");
+    
+    const char* app_name = getenv("APP_NAME");
+    if (!app_name) app_name = "MinArch";
+    
+    int slot_hint = -1;
+    const char* slot_env = getenv("COMPOSITOR_SLOT");
+    if (slot_env) slot_hint = atoi(slot_env);
+    
+    g_dual_ctx.conn = client_connect(slot_hint, app_name, CLIENT_TYPE_NORMAL);
+    
+    if (g_dual_ctx.conn != NULL) {
+        g_dual_ctx.mode = MODE_COMPOSITOR;
+        g_dual_ctx.slot_id = client_get_slot_id(g_dual_ctx.conn);
+        
+        LOG_info("✓ Compositor mode enabled (Slot ID: %d)\n", g_dual_ctx.slot_id);
+        
+        client_install_signal_handlers();
+        client_enable_render_pause(g_dual_ctx.conn);
+        
+        // ★★★ 添加这一行：将自己设为前台 ★★★
+        client_set_foreground(g_dual_ctx.conn, "NORMAL");
+        LOG_info("Set foreground to slot %d\n", g_dual_ctx.slot_id);
+        
+    } else {
+        g_dual_ctx.mode = MODE_STANDALONE;
+        LOG_info("✓ Standalone mode enabled\n");
+    }
+    
+    g_dual_ctx.initialized = true;
+    return true;
+}
+
+// 清理双模系统
+static void quit_dual_mode(void) {
+    if (!g_dual_ctx.initialized) return;
+    if (g_dual_ctx.mode == MODE_COMPOSITOR && g_dual_ctx.conn) {
+        client_disconnect(g_dual_ctx.conn);
+    }
+    g_dual_ctx.initialized = false;
+}
 
 static int finalScaleFilter=GL_LINEAR;
 static int reloadShaderTextures = 1;
 
+static PFNEGLCREATEIMAGEKHRPROC eglCreateImageKHR_ptr = NULL;
+static PFNEGLDESTROYIMAGEKHRPROC eglDestroyImageKHR_ptr = NULL;
+static PFNGLEGLIMAGETARGETTEXTURE2DOESPROC glEGLImageTargetTexture2DOES_ptr = NULL;
+static PFNGLCOPYIMAGESUBDATAEXTPROC glCopyImageSubData_ptr = NULL; 
 // shader stuff
 
 typedef struct Shader {
@@ -287,7 +394,18 @@ GLuint link_program(GLuint vertex_shader, GLuint fragment_shader, const char* ca
     LOG_info("Program linked and cached\n");
     return program;
 }
+//翻转内存方向实现UI方向
+static void memcpy_flipped(void* dest, const void* src, int width, int height, int bpp) {
+    int row_pitch = width * bpp;
+    const uint8_t* src_ptr = (const uint8_t*)src;
+    uint8_t* dest_ptr = (uint8_t*)dest;
 
+    for (int y = 0; y < height; ++y) {
+        const uint8_t* src_row = src_ptr + (y * row_pitch);
+        uint8_t* dest_row = dest_ptr + ((height - 1 - y) * row_pitch);
+        memcpy(dest_row, src_row, row_pitch);
+    }
+}
 char* load_shader_source(const char* filename) {
 	char filepath[256];
 	snprintf(filepath, sizeof(filepath), "%s", filename);
@@ -494,100 +612,169 @@ void PLAT_initShaders() {
 	LOG_info("default shaders loaded, %i\n\n",g_shader_default);
 }
 
+// --- 新增：初始化合成器模式所需的OpenGL资源 ---
+static void init_compositor_gl_resources(void) {
+    if (g_dual_ctx.mode != MODE_COMPOSITOR || g_compositor_gl_res.initialized) {
+        return;
+    }
+
+    LOG_info("Initializing compositor GL resource pool (Triple Buffering)...\n");
+    SDL_GL_MakeCurrent(vid.window, vid.gl_context);
+
+    glGenFramebuffers(NUM_GL_BUFFERS, g_compositor_gl_res.fbos);
+    glGenTextures(NUM_GL_BUFFERS, g_compositor_gl_res.textures);
+
+    for (int i = 0; i < NUM_GL_BUFFERS; i++) {
+        glBindTexture(GL_TEXTURE_2D, g_compositor_gl_res.textures[i]);
+        // 设置纹理参数，但暂时不分配存储，因为内容将来自EGLImage
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+        g_compositor_gl_res.egl_images[i] = EGL_NO_IMAGE_KHR;
+    }
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    g_compositor_gl_res.initialized = true;
+    LOG_info("✓ Compositor GL resources initialized.\n");
+}
+
+// --- 新增：清理合成器模式的OpenGL资源 ---
+static void quit_compositor_gl_resources(void) {
+    if (!g_compositor_gl_res.initialized) {
+        return;
+    }
+
+    LOG_info("Cleaning up compositor GL resource pool...\n");
+    SDL_GL_MakeCurrent(vid.window, vid.gl_context);
+
+    glDeleteFramebuffers(NUM_GL_BUFFERS, g_compositor_gl_res.fbos);
+    glDeleteTextures(NUM_GL_BUFFERS, g_compositor_gl_res.textures);
+
+    EGLDisplay egl_display = eglGetCurrentDisplay();
+    for (int i = 0; i < NUM_GL_BUFFERS; i++) {
+        if (g_compositor_gl_res.egl_images[i] != EGL_NO_IMAGE_KHR) {
+            eglDestroyImageKHR_ptr(egl_display, g_compositor_gl_res.egl_images[i]);
+        }
+    }
+    
+    memset(&g_compositor_gl_res, 0, sizeof(g_compositor_gl_res));
+    g_compositor_gl_res.initialized = false;
+    LOG_info("✓ Compositor GL resources cleaned up.\n");
+}
 
 SDL_Surface* PLAT_initVideo(void) {
-	char* device = getenv("DEVICE");
-	is_brick = exactMatch("brick", device);
-	// LOG_info("DEVICE: %s is_brick: %i\n", device, is_brick);
-	
-	SDL_InitSubSystem(SDL_INIT_VIDEO);
-	SDL_ShowCursor(0);
-	
-	// SDL_version compiled;
-	// SDL_version linked;
-	// SDL_VERSION(&compiled);
-	// SDL_GetVersion(&linked);
-	// LOG_info("Compiled SDL version %d.%d.%d ...\n", compiled.major, compiled.minor, compiled.patch);
-	// LOG_info("Linked SDL version %d.%d.%d.\n", linked.major, linked.minor, linked.patch);
-	//
-	// LOG_info("Available video drivers:\n");
-	// for (int i=0; i<SDL_GetNumVideoDrivers(); i++) {
-	// 	LOG_info("- %s\n", SDL_GetVideoDriver(i));
-	// }
-	// LOG_info("Current video driver: %s\n", SDL_GetCurrentVideoDriver());
-	//
-	// LOG_info("Available render drivers:\n");
-	// for (int i=0; i<SDL_GetNumRenderDrivers(); i++) {
-	// 	SDL_RendererInfo info;
-	// 	SDL_GetRenderDriverInfo(i,&info);
-	// 	LOG_info("- %s\n", info.name);
-	// }
-	//
-	// LOG_info("Available display modes:\n");
-	// SDL_DisplayMode mode;
-	// for (int i=0; i<SDL_GetNumDisplayModes(0); i++) {
-	// 	SDL_GetDisplayMode(0, i, &mode);
-	// 	LOG_info("- %ix%i (%s)\n", mode.w,mode.h, SDL_GetPixelFormatName(mode.format));
-	// }
-	// SDL_GetCurrentDisplayMode(0, &mode);
-	// LOG_info("Current display mode: %ix%i (%s)\n", mode.w,mode.h, SDL_GetPixelFormatName(mode.format));
-	
-	int w = FIXED_WIDTH;
-	int h = FIXED_HEIGHT;
-	int p = FIXED_PITCH;
+    init_dual_mode();
+    
+    char* device = getenv("DEVICE");
+    is_brick = exactMatch("brick", device);
+    
+    SDL_InitSubSystem(SDL_INIT_VIDEO);
+    SDL_ShowCursor(0);
+    
+    int w = FIXED_WIDTH;
+    int h = FIXED_HEIGHT;
+    int p = FIXED_PITCH;
+    
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");
+    SDL_SetHint(SDL_HINT_RENDER_DRIVER, "opengl");
+    SDL_SetHint(SDL_HINT_FRAMEBUFFER_ACCELERATION, "1");
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+    
+    Uint32 window_flags = SDL_WINDOW_OPENGL;
+    if (g_dual_ctx.mode == MODE_COMPOSITOR) {
+        window_flags |= SDL_WINDOW_HIDDEN;
+    } else {
+        window_flags |= SDL_WINDOW_SHOWN;
+    }
+    
+    vid.window = SDL_CreateWindow("", 
+        SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 
+        w, h, window_flags);
+    
+    vid.renderer = SDL_CreateRenderer(vid.window, -1,
+        SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    SDL_SetRenderDrawBlendMode(vid.renderer, SDL_BLENDMODE_BLEND);
+    
+    vid.gl_context = SDL_GL_CreateContext(vid.window);
+    SDL_GL_MakeCurrent(vid.window, vid.gl_context);
+	init_compositor_gl_resources();
 
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
-	SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY,"1");
-	SDL_SetHint(SDL_HINT_RENDER_DRIVER,"opengl");
-	SDL_SetHint(SDL_HINT_FRAMEBUFFER_ACCELERATION,"1");
+    // --- 在此处添加获取 EGL 函数指针的逻辑 ---
+    if (g_dual_ctx.mode == MODE_COMPOSITOR) {
+        LOG_info("Acquiring EGL function pointers for compositor mode...\n");
+        eglCreateImageKHR_ptr = (PFNEGLCREATEIMAGEKHRPROC)eglGetProcAddress("eglCreateImageKHR");
+        eglDestroyImageKHR_ptr = (PFNEGLDESTROYIMAGEKHRPROC)eglGetProcAddress("eglDestroyImageKHR");
+        glEGLImageTargetTexture2DOES_ptr = (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC)eglGetProcAddress("glEGLImageTargetTexture2DOES");
 
-	// SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
-	vid.window   = SDL_CreateWindow("", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, w,h, SDL_WINDOW_OPENGL|SDL_WINDOW_SHOWN);
-	vid.renderer = SDL_CreateRenderer(vid.window,-1,SDL_RENDERER_ACCELERATED|SDL_RENDERER_PRESENTVSYNC);
-	SDL_SetRenderDrawBlendMode(vid.renderer, SDL_BLENDMODE_BLEND);
-	// SDL_RendererInfo info;
-	// SDL_GetRendererInfo(vid.renderer, &info);
-	// LOG_info("Current render driver: %s\n", info.name);
-	
+        if (!eglCreateImageKHR_ptr || !eglDestroyImageKHR_ptr || !glEGLImageTargetTexture2DOES_ptr) {
+            LOG_error("FATAL: Failed to get required EGL/GLES extension function pointers.\n");
+            // 实际项目中这里应该做更稳健的错误处理
+            g_dual_ctx.mode = MODE_STANDALONE; // 回退到独立模式
+        }
+    }
+    // --- 新代码结束 ---
+	// --- BEGIN: 新增代码 ---
+    // 加载 glCopyImageSubData 函数指针，这是零拷贝渲染的关键
+    glCopyImageSubData_ptr = (PFNGLCOPYIMAGESUBDATAEXTPROC)SDL_GL_GetProcAddress("glCopyImageSubData");
+    if (!glCopyImageSubData_ptr) {
+        // 作为备用方案，尝试加载带 EXT 后缀的扩展版本
+        glCopyImageSubData_ptr = (PFNGLCOPYIMAGESUBDATAEXTPROC)SDL_GL_GetProcAddress("glCopyImageSubDataEXT");
+        if (glCopyImageSubData_ptr) {
+            LOG_info("Successfully loaded glCopyImageSubDataEXT function pointer.\n");
+        }
+    } else {
+        LOG_info("Successfully loaded glCopyImageSubData function pointer.\n");
+    }
 
+    // 如果在合成器模式下仍然无法加载此函数，则无法继续，必须回退到独立模式
+    if (g_dual_ctx.mode == MODE_COMPOSITOR && !glCopyImageSubData_ptr) {
+        LOG_error("FATAL: Failed to get glCopyImageSubData function pointer. Compositor mode cannot continue.\n");
+        g_dual_ctx.mode = MODE_STANDALONE; // 回退
+    }
+    // --- END: 新增代码 ---
 
-	vid.gl_context = SDL_GL_CreateContext(vid.window);
-	SDL_GL_MakeCurrent(vid.window, vid.gl_context);
-	glViewport(0, 0, w, h);
-
-	vid.stream_layer1 = SDL_CreateTexture(vid.renderer,SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STREAMING, w,h);
-	vid.target_layer1 = SDL_CreateTexture(vid.renderer,SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET , w,h);
-	vid.target_layer2 = SDL_CreateTexture(vid.renderer,SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET , w,h);
-	vid.target_layer3 = SDL_CreateTexture(vid.renderer,SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET , w,h);
-	vid.target_layer4 = SDL_CreateTexture(vid.renderer,SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET , w,h);
-	vid.target_layer5 = SDL_CreateTexture(vid.renderer,SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET , w,h);
-	
-	vid.target	= NULL; // only needed for non-native sizes
-	
-	vid.screen = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_RGBA8888);
-
-	SDL_SetSurfaceBlendMode(vid.screen, SDL_BLENDMODE_BLEND);
-	SDL_SetTextureBlendMode(vid.stream_layer1, SDL_BLENDMODE_BLEND);
-	SDL_SetTextureBlendMode(vid.target_layer2, SDL_BLENDMODE_BLEND);
-	SDL_SetTextureBlendMode(vid.target_layer3, SDL_BLENDMODE_BLEND);
-	SDL_SetTextureBlendMode(vid.target_layer4, SDL_BLENDMODE_BLEND);
-	SDL_SetTextureBlendMode(vid.target_layer5, SDL_BLENDMODE_BLEND);
-	
-	vid.width	= w;
-	vid.height	= h;
-	vid.pitch	= p;
-	
-	SDL_transparentBlack = SDL_MapRGBA(vid.screen->format, 0, 0, 0, 0);
-	
-	device_width	= w;
-	device_height	= h;
-	device_pitch	= p;
-	
-	vid.sharpness = SHARPNESS_SOFT;
-	
-	return vid.screen;
+    glViewport(0, 0, w, h);
+    
+    vid.stream_layer1 = SDL_CreateTexture(vid.renderer,
+        SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STREAMING, w, h);
+    vid.target_layer1 = SDL_CreateTexture(vid.renderer,
+        SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, w, h);
+    vid.target_layer2 = SDL_CreateTexture(vid.renderer,
+        SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, w, h);
+    vid.target_layer3 = SDL_CreateTexture(vid.renderer,
+        SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, w, h);
+    vid.target_layer4 = SDL_CreateTexture(vid.renderer,
+        SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, w, h);
+    vid.target_layer5 = SDL_CreateTexture(vid.renderer,
+        SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, w, h);
+    
+    vid.target = NULL;
+    vid.screen = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_RGBA8888);
+    
+    SDL_SetSurfaceBlendMode(vid.screen, SDL_BLENDMODE_BLEND);
+    SDL_SetTextureBlendMode(vid.stream_layer1, SDL_BLENDMODE_BLEND);
+    SDL_SetTextureBlendMode(vid.target_layer2, SDL_BLENDMODE_BLEND);
+    SDL_SetTextureBlendMode(vid.target_layer3, SDL_BLENDMODE_BLEND);
+    SDL_SetTextureBlendMode(vid.target_layer4, SDL_BLENDMODE_BLEND);
+    SDL_SetTextureBlendMode(vid.target_layer5, SDL_BLENDMODE_BLEND);
+    
+    vid.width = w;
+    vid.height = h;
+    vid.pitch = p;
+    
+    SDL_transparentBlack = SDL_MapRGBA(vid.screen->format, 0, 0, 0, 0);
+    
+    device_width = w;
+    device_height = h;
+    device_pitch = p;
+    
+    vid.sharpness = SHARPNESS_SOFT;
+    
+    return vid.screen;
 }
 
 void PLAT_resetShaders() {
@@ -807,28 +994,37 @@ static void clearVideo(void) {
 }
 
 void PLAT_quitVideo(void) {
-	clearVideo();
-
-
-	glFinish();
-	SDL_GL_DeleteContext(vid.gl_context);
-	SDL_FreeSurface(vid.screen);
-
-	if (vid.target) SDL_DestroyTexture(vid.target);
-	if (vid.effect) SDL_DestroyTexture(vid.effect);
-	if (vid.overlay) SDL_DestroyTexture(vid.overlay);
-	if (vid.target_layer3) SDL_DestroyTexture(vid.target_layer3);
-	if (vid.target_layer1) SDL_DestroyTexture(vid.target_layer1);
-	if (vid.target_layer2) SDL_DestroyTexture(vid.target_layer2);
-	if (vid.target_layer4) SDL_DestroyTexture(vid.target_layer4);
-	if (vid.target_layer5) SDL_DestroyTexture(vid.target_layer5);
-	if (overlay_path) free(overlay_path);
-	SDL_DestroyTexture(vid.stream_layer1);
-	SDL_DestroyRenderer(vid.renderer);
-	SDL_DestroyWindow(vid.window);
-
-	SDL_QuitSubSystem(SDL_INIT_VIDEO);
-	system("cat /dev/zero > /dev/fb0 2>/dev/null");
+    // 以下是原版代码
+    clearVideo();
+    quit_compositor_gl_resources();
+	
+    glFinish();
+    SDL_GL_DeleteContext(vid.gl_context);
+    SDL_FreeSurface(vid.screen);
+    
+    if (vid.target) SDL_DestroyTexture(vid.target);
+    if (vid.effect) SDL_DestroyTexture(vid.effect);
+    if (vid.overlay) SDL_DestroyTexture(vid.overlay);
+    if (vid.target_layer3) SDL_DestroyTexture(vid.target_layer3);
+    if (vid.target_layer1) SDL_DestroyTexture(vid.target_layer1);
+    if (vid.target_layer2) SDL_DestroyTexture(vid.target_layer2);
+    if (vid.target_layer4) SDL_DestroyTexture(vid.target_layer4);
+    if (vid.target_layer5) SDL_DestroyTexture(vid.target_layer5);
+    if (overlay_path) free(overlay_path);
+    SDL_DestroyTexture(vid.stream_layer1);
+    SDL_DestroyRenderer(vid.renderer);
+    SDL_DestroyWindow(vid.window);
+    
+    SDL_QuitSubSystem(SDL_INIT_VIDEO);
+    
+    // ★★★ 修改这里：根据模式清理 ★★★
+    if (g_dual_ctx.mode == MODE_STANDALONE) {
+        // 独立模式才清空 framebuffer
+        system("cat /dev/zero > /dev/fb0 2>/dev/null");
+    }
+    
+    // ★★★ 添加这一行：清理双模系统 ★★★
+    quit_dual_mode();
 }
 
 void PLAT_clearVideo(SDL_Surface* screen) {
@@ -1385,15 +1581,41 @@ void PLAT_scrollTextTexture(
 }
 
 // super fast without update_texture to draw screen
-void PLAT_GPU_Flip() {
-	SDL_RenderClear(vid.renderer);
-	SDL_RenderCopy(vid.renderer, vid.target_layer1, NULL, NULL);
-	SDL_RenderCopy(vid.renderer, vid.target_layer2, NULL, NULL);
-	SDL_RenderCopy(vid.renderer, vid.stream_layer1, NULL, NULL);
-	SDL_RenderCopy(vid.renderer, vid.target_layer3, NULL, NULL);
-	SDL_RenderCopy(vid.renderer, vid.target_layer4, NULL, NULL);
-	SDL_RenderCopy(vid.renderer, vid.target_layer5, NULL, NULL);
-	SDL_RenderPresent(vid.renderer);
+void PLAT_GPU_Flip(void) {
+    // ★★★ 添加双模判断 ★★★
+    if (g_dual_ctx.mode == MODE_COMPOSITOR) {
+        // ========== 合成器模式 ==========
+        
+        // 检查是否被暂停
+        if (client_is_paused()) {
+            return;
+        }
+        
+        // 获取合成器缓冲区
+        uint8_t* buffer = client_get_render_buffer(g_dual_ctx.conn);
+        if (!buffer) {
+            return;
+        }
+        
+        // 从 OpenGL framebuffer 读取像素到 ion buffer
+        glReadPixels(0, 0, DEMO_WIDTH, DEMO_HEIGHT, 
+                     GL_RGBA, GL_UNSIGNED_BYTE, buffer);
+        
+        // 提交到合成器
+        client_present(g_dual_ctx.conn, buffer);
+        
+        return;
+    }
+    
+    // ========== 独立模式（原版实现）==========
+    SDL_RenderClear(vid.renderer);
+    SDL_RenderCopy(vid.renderer, vid.target_layer1, NULL, NULL);
+    SDL_RenderCopy(vid.renderer, vid.target_layer2, NULL, NULL);
+    SDL_RenderCopy(vid.renderer, vid.stream_layer1, NULL, NULL);
+    SDL_RenderCopy(vid.renderer, vid.target_layer3, NULL, NULL);
+    SDL_RenderCopy(vid.renderer, vid.target_layer4, NULL, NULL);
+    SDL_RenderCopy(vid.renderer, vid.target_layer5, NULL, NULL);
+    SDL_RenderPresent(vid.renderer);
 }
 
 
@@ -1836,43 +2058,77 @@ void PLAT_clearShaders() {
 	vid.blit = NULL;
 }
 
-void PLAT_flipHidden() {
-	SDL_RenderClear(vid.renderer);
-	resizeVideo(device_width, device_height, FIXED_PITCH); // !!!???
-	SDL_UpdateTexture(vid.stream_layer1, NULL, vid.screen->pixels, vid.screen->pitch);
-	SDL_RenderCopy(vid.renderer, vid.target_layer1, NULL, NULL);
-	SDL_RenderCopy(vid.renderer, vid.target_layer2, NULL, NULL);
-	SDL_RenderCopy(vid.renderer, vid.stream_layer1, NULL, NULL);
-	SDL_RenderCopy(vid.renderer, vid.target_layer3, NULL, NULL);
-	SDL_RenderCopy(vid.renderer, vid.target_layer4, NULL, NULL);
-	SDL_RenderCopy(vid.renderer, vid.target_layer5, NULL, NULL);
-	//  SDL_RenderPresent(vid.renderer); // no present want to flip  hidden
+void PLAT_flipHidden(void) {
+    if (g_dual_ctx.mode == MODE_COMPOSITOR) {
+
+        if (client_is_paused()) {
+            return;
+        }
+        
+        SDL_RenderClear(vid.renderer);
+        resizeVideo(device_width, device_height, FIXED_PITCH);
+        SDL_UpdateTexture(vid.stream_layer1, NULL, vid.screen->pixels, vid.screen->pitch);
+        SDL_RenderCopy(vid.renderer, vid.target_layer1, NULL, NULL);
+        SDL_RenderCopy(vid.renderer, vid.target_layer2, NULL, NULL);
+        SDL_RenderCopy(vid.renderer, vid.stream_layer1, NULL, NULL);
+        SDL_RenderCopy(vid.renderer, vid.target_layer3, NULL, NULL);
+        SDL_RenderCopy(vid.renderer, vid.target_layer4, NULL, NULL);
+        SDL_RenderCopy(vid.renderer, vid.target_layer5, NULL, NULL);
+
+        return;
+    }
+    
+    SDL_RenderClear(vid.renderer);
+    resizeVideo(device_width, device_height, FIXED_PITCH);
+    SDL_UpdateTexture(vid.stream_layer1, NULL, vid.screen->pixels, vid.screen->pitch);
+    SDL_RenderCopy(vid.renderer, vid.target_layer1, NULL, NULL);
+    SDL_RenderCopy(vid.renderer, vid.target_layer2, NULL, NULL);
+    SDL_RenderCopy(vid.renderer, vid.stream_layer1, NULL, NULL);
+    SDL_RenderCopy(vid.renderer, vid.target_layer3, NULL, NULL);
+    SDL_RenderCopy(vid.renderer, vid.target_layer4, NULL, NULL);
+    SDL_RenderCopy(vid.renderer, vid.target_layer5, NULL, NULL);
 }
 
 void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
-	// dont think we need this here tbh
-	// SDL_RenderClear(vid.renderer);    
-	if (!vid.blit) {
-        resizeVideo(device_width, device_height, FIXED_PITCH); // !!!???
+    if (g_dual_ctx.mode == MODE_COMPOSITOR) {
+        if (client_is_paused()) {
+            return;
+        }
+        uint8_t* buffer = client_get_render_buffer(g_dual_ctx.conn);
+        if (buffer && vid.screen && vid.screen->pixels) {
+            // 将UI的RGBA数据拷贝到共享缓冲区
+            //memcpy(buffer, vid.screen->pixels, DEMO_BUFFER_SIZE);
+			memcpy_flipped(buffer, vid.screen->pixels, DEMO_WIDTH, DEMO_HEIGHT, DEMO_BPP);
+            swizzle_rgba_to_argb_fast((uint32_t*)buffer, DEMO_WIDTH * DEMO_HEIGHT);
+            client_present(g_dual_ctx.conn, buffer);
+        }
+        return;
+    }
+    
+    // ========== 独立模式（原版实现）==========
+    
+    if (!vid.blit) {
+        resizeVideo(device_width, device_height, FIXED_PITCH);
         SDL_UpdateTexture(vid.stream_layer1, NULL, vid.screen->pixels, vid.screen->pitch);
-		SDL_RenderCopy(vid.renderer, vid.target_layer1, NULL, NULL);
+        SDL_RenderCopy(vid.renderer, vid.target_layer1, NULL, NULL);
         SDL_RenderCopy(vid.renderer, vid.target_layer2, NULL, NULL);
         SDL_RenderCopy(vid.renderer, vid.stream_layer1, NULL, NULL);
-		SDL_RenderCopy(vid.renderer, vid.target_layer3, NULL, NULL);
-		SDL_RenderCopy(vid.renderer, vid.target_layer4, NULL, NULL);
-		SDL_RenderCopy(vid.renderer, vid.target_layer5, NULL, NULL);
+        SDL_RenderCopy(vid.renderer, vid.target_layer3, NULL, NULL);
+        SDL_RenderCopy(vid.renderer, vid.target_layer4, NULL, NULL);
+        SDL_RenderCopy(vid.renderer, vid.target_layer5, NULL, NULL);
         SDL_RenderPresent(vid.renderer);
         return;
     }
+    
     SDL_UpdateTexture(vid.stream_layer1, NULL, vid.blit->src, vid.blit->src_p);
-
+    
     SDL_Texture* target = vid.stream_layer1;
     int x = vid.blit->src_x;
     int y = vid.blit->src_y;
     int w = vid.blit->src_w;
     int h = vid.blit->src_h;
+    
     if (vid.sharpness == SHARPNESS_CRISP) {
-		
         SDL_SetRenderTarget(vid.renderer, vid.target);
         SDL_RenderCopy(vid.renderer, vid.stream_layer1, NULL, NULL);
         SDL_SetRenderTarget(vid.renderer, NULL);
@@ -1882,14 +2138,12 @@ void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
         h *= hard_scale;
         target = vid.target;
     }
-
+    
     SDL_Rect* src_rect = &(SDL_Rect){x, y, w, h};
     SDL_Rect* dst_rect = &(SDL_Rect){0, 0, device_width, device_height};
-
     setRectToAspectRatio(dst_rect);
-	
     SDL_RenderCopy(vid.renderer, target, src_rect, dst_rect);
-
+    
     SDL_RenderPresent(vid.renderer);
     vid.blit = NULL;
 }
@@ -2026,7 +2280,6 @@ void runShaderPass(GLuint src_texture, GLuint shader_program, GLuint* target_tex
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 	last_program = shader_program;
 }
-
 typedef struct {
     SDL_Surface* loaded_effect;
     SDL_Surface* loaded_overlay;
@@ -2088,10 +2341,266 @@ int prepareFrameThread(void *data) {
 static SDL_Thread *prepare_thread = NULL;
 
 void PLAT_GL_Swap() {
+    if (g_dual_ctx.mode == MODE_COMPOSITOR) {
+        // ========== 合成器模式 - 使用资源池进行高效渲染 ==========
 
-	if (prepare_thread == NULL) {
+        if (client_is_paused() || !vid.blit || !vid.blit->src) {
+            if (client_is_paused()) return;
+            LOG_error("渲染数据无效：vid.blit 或 vid.blit->src 为空。\n");
+            return;
+        }
+        
+        // --- 修改点 1: 确保资源池已初始化 ---
+        if (!g_compositor_gl_res.initialized) {
+            LOG_error("Compositor GL resources not initialized!\n");
+            return;
+        }
+
+        SDL_GL_MakeCurrent(vid.window, vid.gl_context);
+        CHECK_GL_ERROR("After MakeCurrent");
+        
+        ClientRenderTarget render_target = client_get_render_target(g_dual_ctx.conn);
+        if (render_target.fd < 0) {
+            LOG_error("Compositor Mode: Failed to get a valid render target from client_lib.\n");
+            return;
+        }
+        
+        EGLDisplay egl_display = eglGetCurrentDisplay();
+        
+        // --- 修改点 2: 从资源池获取当前要使用的FBO、纹理和EGLImage索引 ---
+        int idx = g_compositor_gl_res.current_index;
+        GLuint current_fbo = g_compositor_gl_res.fbos[idx];
+        GLuint current_texture = g_compositor_gl_res.textures[idx];
+        EGLImageKHR* p_current_egl_image = &g_compositor_gl_res.egl_images[idx];
+
+        // --- 修改点 3: 销毁上一次使用这个槽位时的 EGLImage (如果存在) ---
+        if (*p_current_egl_image != EGL_NO_IMAGE_KHR) {
+            eglDestroyImageKHR_ptr(egl_display, *p_current_egl_image);
+            *p_current_egl_image = EGL_NO_IMAGE_KHR;
+        }
+        
+        EGLint attribs[] = {
+            EGL_WIDTH, DEMO_WIDTH,
+            EGL_HEIGHT, DEMO_HEIGHT,
+            EGL_LINUX_DRM_FOURCC_EXT, 0x34325241, // 'ARGB'
+            EGL_DMA_BUF_PLANE0_FD_EXT, render_target.fd,
+            EGL_DMA_BUF_PLANE0_OFFSET_EXT, 0,
+            EGL_DMA_BUF_PLANE0_PITCH_EXT, DEMO_PITCH,
+            EGL_NONE
+        };
+
+        // --- 修改点 4: 只创建EGLImage，不再创建纹理和FBO ---
+        EGLImageKHR new_egl_image = eglCreateImageKHR_ptr(egl_display, EGL_NO_CONTEXT, EGL_LINUX_DMA_BUF_EXT, NULL, attribs);
+        if (new_egl_image == EGL_NO_IMAGE_KHR) {
+            LOG_error("Compositor Mode: eglCreateImageKHR failed. EGL error: 0x%x\n", eglGetError());
+            // 注意：这里不 goto 清理，因为FBO和纹理是持久的
+            return;
+        }
+        
+        // --- 修改点 5: 将新的EGLImage关联到池中的现有纹理 ---
+        glBindTexture(GL_TEXTURE_2D, current_texture);
+        glEGLImageTargetTexture2DOES_ptr(GL_TEXTURE_2D, (GLeglImageOES)new_egl_image);
+        CHECK_GL_ERROR("After associating EGLImage to texture");
+
+        // 保存新的EGLImage句柄，以便下次循环时销毁它
+        *p_current_egl_image = new_egl_image;
+
+        // --- 修改点 6: 绑定到池中的现有FBO ---
+        glBindFramebuffer(GL_FRAMEBUFFER, current_fbo);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, current_texture, 0);
+
+        GLenum fbo_status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        if (fbo_status != GL_FRAMEBUFFER_COMPLETE) {
+            LOG_error("Compositor Mode: FBO %u is not complete! Status: 0x%04x\n", current_fbo, fbo_status);
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            return;
+        }
+
+        // -- 修改点 3: 渲染逻辑不变，它将自动渲染到当前绑定的 main_fbo --
+        glViewport(0, 0, DEMO_WIDTH, DEMO_HEIGHT);
+        glClear(GL_COLOR_BUFFER_BIT);
+        CHECK_GL_ERROR("After glClear on main FBO");
+        
+        // --- BEGIN: 完整的游戏核心渲染逻辑 (无需改动) ---
+        SDL_Rect dst_rect = {0, 0, DEMO_WIDTH, DEMO_HEIGHT};
+        setRectToAspectRatio(&dst_rect);
+
+        static GLuint effect_tex = 0;
+        static int effect_w = 0, effect_h = 0;
+        static GLuint overlay_tex = 0;
+        static int overlay_w = 0, overlay_h = 0;
+        static int overlayload = 0;
+
+        if (frame_prep.effect_ready) {
+            if(frame_prep.loaded_effect) {
+                if(!effect_tex) glGenTextures(1, &effect_tex);
+                glBindTexture(GL_TEXTURE_2D, effect_tex);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, frame_prep.loaded_effect->w, frame_prep.loaded_effect->h, 0, GL_RGBA, GL_UNSIGNED_BYTE, frame_prep.loaded_effect->pixels);
+                effect_w = frame_prep.loaded_effect->w;
+                effect_h = frame_prep.loaded_effect->h;
+            } else {
+                if (effect_tex) glDeleteTextures(1, &effect_tex);
+                effect_tex = 0;
+            }
+            frame_prep.effect_ready = 0; 
+        }
+
+        if (frame_prep.overlay_ready) {
+            if(frame_prep.loaded_overlay) {
+                if(!overlay_tex) glGenTextures(1, &overlay_tex);
+                glBindTexture(GL_TEXTURE_2D, overlay_tex);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, frame_prep.loaded_overlay->w, frame_prep.loaded_overlay->h, 0, GL_RGBA, GL_UNSIGNED_BYTE, frame_prep.loaded_overlay->pixels);
+                overlay_w = frame_prep.loaded_overlay->w;
+                overlay_h = frame_prep.loaded_overlay->h;
+            } else {
+                if (overlay_tex) glDeleteTextures(1, &overlay_tex);
+                overlay_tex = 0;
+            }
+            frame_prep.overlay_ready = 0; 
+        }
+        
+        static GLuint src_texture = 0;
+        static int src_w_last = 0, src_h_last = 0;
+
+        if (!src_texture || reloadShaderTextures) {
+            if (src_texture==0) glGenTextures(1, &src_texture);
+            glBindTexture(GL_TEXTURE_2D, src_texture);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, nrofshaders > 0 ? shaders[0]->filter : finalScaleFilter);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, nrofshaders > 0 ? shaders[0]->filter : finalScaleFilter);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        }
+        glBindTexture(GL_TEXTURE_2D, src_texture);
+        if (vid.blit->src_w != src_w_last || vid.blit->src_h != src_h_last || reloadShaderTextures) {
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, vid.blit->src_w, vid.blit->src_h, 0, GL_RGBA, GL_UNSIGNED_BYTE, vid.blit->src);
+            src_w_last = vid.blit->src_w;
+            src_h_last = vid.blit->src_h;
+        } else {
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, vid.blit->src_w, vid.blit->src_h, GL_RGBA, GL_UNSIGNED_BYTE, vid.blit->src);
+        }
+        
+        if (nrofshaders < 1) {
+             runShaderPass(src_texture, g_shader_default, NULL, dst_rect.x, dst_rect.y,
+                dst_rect.w, dst_rect.h,
+                &(Shader){.srcw = vid.blit->src_w, .srch = vid.blit->src_h, .texw = vid.blit->src_w, .texh = vid.blit->src_h},
+                0, GL_NONE);
+        }
+
+        int last_w = vid.blit->src_w;
+        int last_h = vid.blit->src_h;
+
+        for (int i = 0; i < nrofshaders; i++) {
+            int src_w = last_w;
+            int src_h = last_h;
+            int dst_w = src_w * shaders[i]->scale;
+            int dst_h = src_h * shaders[i]->scale;
+
+            if (shaders[i]->scale == 9) {
+                dst_w = dst_rect.w;
+                dst_h = dst_rect.h;
+            }
+
+            if (reloadShaderTextures) {
+                for (int j = i; j < nrofshaders; j++) {
+                    int real_input_w = (i == 0) ? vid.blit->src_w : last_w;
+                    int real_input_h = (i == 0) ? vid.blit->src_h : last_h;
+
+                    shaders[i]->srcw = shaders[i]->srctype == 0 ? vid.blit->src_w : shaders[i]->srctype == 2 ? dst_rect.w : real_input_w;
+                    shaders[i]->srch = shaders[i]->srctype == 0 ? vid.blit->src_h : shaders[i]->srctype == 2 ? dst_rect.h : real_input_h;
+                    shaders[i]->texw = shaders[i]->scaletype == 0 ? vid.blit->src_w : shaders[i]->scaletype == 2 ? dst_rect.w : real_input_w;
+                    shaders[i]->texh = shaders[i]->scaletype == 0 ? vid.blit->src_h : shaders[i]->scaletype == 2 ? dst_rect.h : real_input_h;
+                }
+            }
+
+            static int shaderinfocount = 0;
+            static int shaderinfoscreen = 0;
+            if (shaderinfocount > 600 && shaderinfoscreen == i) {
+                currentshaderpass = i + 1;
+                currentshadertexw = shaders[i]->texw;
+                currentshadertexh = shaders[i]->texh;
+                currentshadersrcw = shaders[i]->srcw;
+                currentshadersrch = shaders[i]->srch;
+                currentshaderdstw = dst_w;
+                currentshaderdsth = dst_h;
+                shaderinfocount = 0;
+                shaderinfoscreen++;
+                if (shaderinfoscreen >= nrofshaders)
+                    shaderinfoscreen = 0;
+            }
+            shaderinfocount++;
+
+            if (shaders[i]->shader_p) {
+                runShaderPass(
+                    (i == 0) ? src_texture : shaders[i - 1]->texture,
+                    shaders[i]->shader_p,
+                    &shaders[i]->texture,
+                    0, 0, dst_w, dst_h,
+                    shaders[i],
+                    0,
+                    (i == nrofshaders - 1) ? finalScaleFilter : shaders[i + 1]->filter
+                );
+            } else {
+                runShaderPass(
+                    (i == 0) ? src_texture : shaders[i - 1]->texture,
+                    g_noshader,
+                    &shaders[i]->texture,
+                    0, 0, dst_w, dst_h,
+                    shaders[i],
+                    0,
+                    (i == nrofshaders - 1) ? finalScaleFilter : shaders[i + 1]->filter
+                );
+            }
+
+            last_w = dst_w;
+            last_h = dst_h;
+        }
+        
+        if (nrofshaders > 0) {
+            runShaderPass(
+                shaders[nrofshaders - 1]->texture,
+                g_shader_default,
+                NULL,
+                dst_rect.x, dst_rect.y, dst_rect.w, dst_rect.h,
+                &(Shader){.srcw = last_w, .srch = last_h, .texw = last_w, .texh = last_h},
+                0, GL_NONE
+            );
+        }
+
+        if (effect_tex) {
+            runShaderPass(
+                effect_tex, g_shader_overlay, NULL,
+                dst_rect.x, dst_rect.y, effect_w, effect_h,
+                &(Shader){.srcw = effect_w, .srch = effect_h, .texw = effect_w, .texh = effect_h},
+                1, GL_NONE);
+        }
+
+        if (overlay_tex) {
+            runShaderPass(
+                overlay_tex, g_shader_overlay, NULL,
+                0, 0, device_width, device_height,
+                &(Shader){.srcw = vid.blit->src_w, .srch = vid.blit->src_h, .texw = overlay_w, .texh = overlay_h},
+                1, GL_NONE);
+        }
+        // --- 渲染逻辑结束 ---
+        
+        //glFinish();
+        client_present(g_dual_ctx.conn, render_target.ptr);
+        
+        // --- 修改点 7: 解绑FBO，并移动到下一个资源索引 ---
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        g_compositor_gl_res.current_index = (g_compositor_gl_res.current_index + 1) % NUM_GL_BUFFERS;
+
+        CHECK_GL_ERROR("After cleanup");
+        
+        glViewport(0, 0, device_width, device_height);
+        frame_count++;
+        reloadShaderTextures = 0;
+        return;
+    }
+    
+    // ========== 独立模式（原版实现，保持不变）==========
+    if (prepare_thread == NULL) {
         prepare_thread = SDL_CreateThread(prepareFrameThread, "PrepareFrameThread", NULL);
-
         if (prepare_thread == NULL) {
             printf("Error creating background thread: %s\n", SDL_GetError());
             return; 
@@ -2165,10 +2674,6 @@ void PLAT_GL_Swap() {
     static int last_w = 0, last_h = 0;
 
     if (!src_texture || reloadShaderTextures) {
-        // if (src_texture) {
-        //     glDeleteTextures(1, &src_texture);
-        //     src_texture = 0;
-        // }
 		if (src_texture==0)
         	glGenTextures(1, &src_texture);
         glBindTexture(GL_TEXTURE_2D, src_texture);

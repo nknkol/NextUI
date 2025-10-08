@@ -21,13 +21,15 @@ SDL?=SDL
 
 TARGET = minarch
 PRODUCT= build/$(PLATFORM)/$(TARGET).elf
-INCDIR = -I. -I./libretro-common/include/ -I../../lib/libcommon/
-SOURCE = $(TARGET).c ../../lib/libcommon/lang.c ../../lib/libcommon/scaler.c ../../lib/libcommon/utils.c ../../lib/libcommon/config.c ../../lib/libcommon/api.c ../../lib/libcommon/platform.c
+COMPOSITOR_DIR = ../../system/compositor
+CLIENT_LIB_DIR = $(COMPOSITOR_DIR)/client_lib
+INCDIR = -I. -I./libretro-common/include/ -I../../lib/libcommon/ -I$(COMPOSITOR_DIR) -I$(CLIENT_LIB_DIR)
+SOURCE = $(TARGET).c ../../lib/libcommon/lang.c ../../lib/libcommon/scaler.c ../../lib/libcommon/utils.c ../../lib/libcommon/config.c ../../lib/libcommon/api.c ../../lib/libcommon/platform.c $(CLIENT_LIB_DIR)/client_lib.c
 
 CC = $(CROSS_COMPILE)gcc
 CFLAGS  += $(ARCH) -fomit-frame-pointer
 CFLAGS  += $(INCDIR) -DPLATFORM=\"$(PLATFORM)\" -std=gnu99
-LDFLAGS	 += -lmsettings -lsamplerate
+LDFLAGS	 += -lmsettings -lsamplerate -lrt -luapi -lEGL -lGLESv2
 ifeq ($(PLATFORM), desktop)
 ifeq ($(UNAME_S),Linux)
 CFLAGS += `pkg-config --cflags libzip`

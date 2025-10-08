@@ -20,11 +20,13 @@ OBJECTS = $(addprefix $(BUILD_DIR)/, $(SOURCES:.c=.o))
 .PHONY: build clean
 
 CC = $(CROSS_COMPILE)gcc
+COMPOSITOR_DIR = ../../system/compositor
+CLIENT_LIB_DIR = $(COMPOSITOR_DIR)/client_lib
 
-CFLAGS += -std=gnu99 -DPLATFORM=\"$(PLATFORM)\" -Werror -fpic -I. -I$(PREFIX_LOCAL)/include -I../../system/compositor/client_lib -I../../system/compositor
+CFLAGS += -std=gnu99 -DPLATFORM=\"$(PLATFORM)\" -Werror -fpic -I. -I$(PREFIX_LOCAL)/include -I$(COMPOSITOR_DIR) -I$(CLIENT_LIB_DIR)
 
 # 定义链接标志
-LDFLAGS = -s -lsamplerate -lbtmg -lglib-2.0 -lgio-2.0 -lshared-mainloop -lbluetooth-internal -lasound -ljson-c
+LDFLAGS = -s -lsamplerate -lbtmg -lglib-2.0 -lgio-2.0 -lshared-mainloop -lbluetooth-internal -lasound -ljson-c -lEGL -lGLESv2
 # ----------------------------------------------------
 
 build: $(PRODUCT)
