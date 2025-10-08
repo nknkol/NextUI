@@ -141,6 +141,7 @@ system:
 	cp $(SRC_SYS_DIR)/keymon/keymon.elf $(SYSTEM_BIN)/
 	cp $(SRC_SYS_DIR)/gametimectl/build/$(PLATFORM)/gametimectl.elf $(SYSTEM_BIN)/
 	cp $(SRC_SYS_DIR)/batmon/build/$(PLATFORM)/batmon.elf $(SYSTEM_BIN)/
+	cp $(SRC_SYS_DIR)/compositor/build/$(PLATFORM)/compositor.elf $(SYSTEM_BIN)/
 
 	cp $(SRC_SYS_DIR)/rfkill/rfkill.elf $(SYSTEM_BIN)/
 	# bluetooth
