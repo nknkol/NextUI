@@ -269,6 +269,7 @@ static struct VID_Context {
 	SDL_Texture* overlay;
 	SDL_Surface* screen;
 	SDL_GLContext gl_context;
+    SDL_Texture* master_target_texture; // 作为合成器模式下的主渲染目标
 	
 	GFX_Renderer* blit; // yeesh
 	int width;
@@ -751,7 +752,20 @@ SDL_Surface* PLAT_initVideo(void) {
         SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, w, h);
     vid.target_layer5 = SDL_CreateTexture(vid.renderer,
         SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, w, h);
-    
+    // --- 新增代码 BEGIN ---
+    // 为合成器模式创建主离屏渲染目标
+    if (g_dual_ctx.mode == MODE_COMPOSITOR) {
+        vid.master_target_texture = SDL_CreateTexture(vid.renderer,
+            SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, w, h);
+        if (!vid.master_target_texture) {
+            LOG_error("Failed to create master_target_texture: %s\n", SDL_GetError());
+            // 可以在这里添加更完善的错误处理，比如回退到独立模式
+        }
+        SDL_SetTextureBlendMode(vid.master_target_texture, SDL_BLENDMODE_BLEND);
+    } else {
+        vid.master_target_texture = NULL;
+    }
+    // --- 新增代码 END ---
     vid.target = NULL;
     vid.screen = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_RGBA8888);
     
@@ -1005,6 +1019,7 @@ void PLAT_quitVideo(void) {
     if (vid.target) SDL_DestroyTexture(vid.target);
     if (vid.effect) SDL_DestroyTexture(vid.effect);
     if (vid.overlay) SDL_DestroyTexture(vid.overlay);
+    if (vid.master_target_texture) SDL_DestroyTexture(vid.master_target_texture);
     if (vid.target_layer3) SDL_DestroyTexture(vid.target_layer3);
     if (vid.target_layer1) SDL_DestroyTexture(vid.target_layer1);
     if (vid.target_layer2) SDL_DestroyTexture(vid.target_layer2);
@@ -2089,24 +2104,62 @@ void PLAT_flipHidden(void) {
     SDL_RenderCopy(vid.renderer, vid.target_layer5, NULL, NULL);
 }
 
+
 void PLAT_flip(SDL_Surface* IGNORED, int ignored) {
+    //static uint64_t frame_count = 0;
+    //static uint64_t last_log_time = 0;
+    //struct timespec ts_start, ts_end;
+    
+    // --- 修改 BEGIN ---
     if (g_dual_ctx.mode == MODE_COMPOSITOR) {
-        if (client_is_paused()) {
+        if (client_is_paused() || !vid.blit) {
+        } else {
+            LOG_warn("PLAT_flip called with vid.blit in UI compositor path. This should not happen.\n");
             return;
         }
+
+        // 1. 设置渲染目标为我们的离屏主纹理
+        if (SDL_SetRenderTarget(vid.renderer, vid.master_target_texture) != 0) {
+            LOG_error("Failed to set render target to master_target_texture: %s\n", SDL_GetError());
+            return;
+        }
+
+        // 2. 执行所有图层的合成绘制（与独立模式下的 PLAT_flipHidden 逻辑相同）
+        SDL_SetRenderDrawColor(vid.renderer, 0, 0, 0, 0); 
+        SDL_RenderClear(vid.renderer);
+        resizeVideo(device_width, device_height, FIXED_PITCH);
+        SDL_UpdateTexture(vid.stream_layer1, NULL, vid.screen->pixels, vid.screen->pitch);
+        
+        SDL_RenderCopy(vid.renderer, vid.target_layer1, NULL, NULL);
+        SDL_RenderCopy(vid.renderer, vid.target_layer2, NULL, NULL);
+        SDL_RenderCopy(vid.renderer, vid.stream_layer1, NULL, NULL);
+        SDL_RenderCopy(vid.renderer, vid.target_layer3, NULL, NULL);
+        SDL_RenderCopy(vid.renderer, vid.target_layer4, NULL, NULL);
+        SDL_RenderCopy(vid.renderer, vid.target_layer5, NULL, NULL);
+
+        // 3. 将最终合成的画面从GPU读回到CPU内存 (vid.screen->pixels)
+        if (SDL_RenderReadPixels(vid.renderer, NULL, vid.screen->format->format, 
+                                 vid.screen->pixels, vid.screen->pitch) != 0) {
+            LOG_error("Failed to read pixels from master_target_texture: %s\n", SDL_GetError());
+        }
+
+        // 4. 恢复渲染目标到默认（窗口）
+        SDL_SetRenderTarget(vid.renderer, NULL);
+
+        // 5. 使用你之前稳定无错的内存拷贝逻辑提交给合成器
         uint8_t* buffer = client_get_render_buffer(g_dual_ctx.conn);
         if (buffer && vid.screen && vid.screen->pixels) {
-            // 将UI的RGBA数据拷贝到共享缓冲区
-            //memcpy(buffer, vid.screen->pixels, DEMO_BUFFER_SIZE);
-			memcpy_flipped(buffer, vid.screen->pixels, DEMO_WIDTH, DEMO_HEIGHT, DEMO_BPP);
+            memcpy_flipped(buffer, vid.screen->pixels, DEMO_WIDTH, DEMO_HEIGHT, DEMO_BPP);
             swizzle_rgba_to_argb_fast((uint32_t*)buffer, DEMO_WIDTH * DEMO_HEIGHT);
             client_present(g_dual_ctx.conn, buffer);
         }
+        
+        // 帧率同步（可选，但推荐保留以稳定帧率）
+        GFX_sync_compositor();
+
         return;
     }
-    
-    // ========== 独立模式（原版实现）==========
-    
+    //独立模式
     if (!vid.blit) {
         resizeVideo(device_width, device_height, FIXED_PITCH);
         SDL_UpdateTexture(vid.stream_layer1, NULL, vid.screen->pixels, vid.screen->pitch);

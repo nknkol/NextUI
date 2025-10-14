@@ -862,6 +862,30 @@ void GFX_sync_fixed_rate(double target_fps) {
         next_frame_time = new_current_time + frame_duration_ticks;
     }
 }
+void GFX_sync_compositor(void) {
+    static uint64_t next_frame_time = 0;
+    const double target_fps = SCREEN_FPS; // 目标帧率与屏幕/合成器保持一致
+    
+    uint64_t perf_freq = SDL_GetPerformanceFrequency();
+    uint64_t frame_duration_ticks = (uint64_t)(perf_freq / target_fps);
+
+    if (next_frame_time == 0) {
+        next_frame_time = SDL_GetPerformanceCounter() + frame_duration_ticks;
+    }
+
+    uint64_t current_time = SDL_GetPerformanceCounter();
+
+    if (current_time < next_frame_time) {
+        while (SDL_GetPerformanceCounter() < next_frame_time) {
+        }
+    }
+    next_frame_time += frame_duration_ticks;
+
+    uint64_t new_current_time = SDL_GetPerformanceCounter();
+    if (next_frame_time < new_current_time) {
+        next_frame_time = new_current_time + frame_duration_ticks;
+    }
+}
 // if a fake vsycn delay is really needed
 void GFX_delay(void)
 {
